@@ -37,17 +37,22 @@ def load_config(config_path: str = "configs/Vanilla_RNN.yaml") -> dict:
 
 
 def train_epoch(model, optimizer, images, captions, batch_size, device, gradient_clip=None):
-    """Train for one epoch."""
+    """Train for one epoch with data augmentation."""
     model.train()
     total_loss = 0.0
     num_batches = len(images) // batch_size
     
+    # Shuffle data
     perm = torch.randperm(len(images))
     images, captions = images[perm], captions[perm]
     
     for i in range(num_batches):
         batch_img = images[i*batch_size:(i+1)*batch_size].to(device)
         batch_cap = captions[i*batch_size:(i+1)*batch_size].to(device)
+        
+        # Simple data augmentation: random horizontal flip
+        if torch.rand(1).item() > 0.5:
+            batch_img = torch.flip(batch_img, dims=[3])  # flip horizontally
         
         optimizer.zero_grad()
         loss = model(batch_img, batch_cap)
@@ -93,13 +98,16 @@ def train(config, data, device):
     
     print(f"Model parameters: {model.count_parameters():,}")
     
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(  # استخدم AdamW بدل Adam
         model.parameters(), 
         lr=config["training"]["learning_rate"],
-        weight_decay=config["training"]["weight_decay"]
+        weight_decay=config["training"]["weight_decay"],
+        betas=(0.9, 0.999)
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=1, gamma=config["training"]["lr_decay"]
+    
+    # Cosine annealing scheduler بدل StepLR
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=10, T_mult=2, eta_min=1e-6
     )
     
     history = {"train_loss": [], "val_loss": [], "epoch_times": []}
@@ -135,15 +143,17 @@ def train(config, data, device):
             best_val_loss = val_loss
             patience_counter = 0
             # Save best model
-            best_model_state = model.state_dict().copy()
+            best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             status = "✓ Best"
         else:
             patience_counter += 1
             status = f"({patience_counter}/{patience})"
         
+        # Print with learning rate
+        current_lr = optimizer.param_groups[0]['lr']
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
               f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
-              f"Time: {epoch_time:.1f}s {status}")
+              f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
         
         # Early stopping
         if patience_counter >= patience:

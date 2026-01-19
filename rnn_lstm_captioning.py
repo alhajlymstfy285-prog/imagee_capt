@@ -394,7 +394,14 @@ def temporal_softmax_loss(x, y, ignore_index=None):
     ##########################################################################
     # Replace "pass" statement with your code
     N, T, V = x.shape
-    loss = torch.nn.functional.cross_entropy(x.reshape(N * T, V), y.reshape(N * T), ignore_index=ignore_index, reduction='sum') / N
+    # Add label smoothing for better generalization
+    loss = torch.nn.functional.cross_entropy(
+        x.reshape(N * T, V), 
+        y.reshape(N * T), 
+        ignore_index=ignore_index, 
+        reduction='sum',
+        label_smoothing=0.1  # Add label smoothing
+    ) / N
 
     ##########################################################################
     #                             END OF YOUR CODE                           #
@@ -539,6 +546,7 @@ class CaptioningRNN(nn.Module):
             word_embedd = self.dropout(self.word_embedd(captions_in))  # Apply dropout
             h = self.rnn(word_embedd, h0)
             h = self.dropout(h)  # Apply dropout after RNN
+            h = torch.nn.functional.layer_norm(h, h.shape[1:])  # Add layer norm
         elif self.cell_type == 'attn':
             # Pass features directly for AttentionLSTM: (N, C, 4, 4)
             # The projection to (N, H, 4, 4) happens inside AttentionLSTM

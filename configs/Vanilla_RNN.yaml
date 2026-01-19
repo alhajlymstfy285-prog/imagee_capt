@@ -2,19 +2,19 @@
 
 model:
   cell_type: "rnn"
-  wordvec_dim: 256        # زود من 128
-  hidden_dim: 512         # زود من 128
+  wordvec_dim: 512        # زود أكتر (من 256)
+  hidden_dim: 1024        # زود أكتر (من 512)
   image_encoder_pretrained: true
-  dropout: 0.3            # أضف dropout
+  dropout: 0.5            # زود dropout (من 0.3)
 
 training:
-  num_epochs: 50
-  batch_size: 32          # قلل من 64 (عشان الـ hidden_dim أكبر)
-  learning_rate: 0.0005   # قلل من 0.001
-  weight_decay: 0.0001
-  lr_decay: 0.95
-  early_stopping_patience: 10  # وقف لو Val loss مش بيتحسن
-  gradient_clip: 5.0      # منع exploding gradients
+  num_epochs: 100         # زود epochs
+  batch_size: 16          # قلل batch (من 32) عشان model أكبر
+  learning_rate: 0.0003   # قلل أكتر (من 0.0005)
+  weight_decay: 0.0005    # زود regularization (من 0.0001)
+  lr_decay: 0.98          # decay أبطأ (من 0.95)
+  early_stopping_patience: 15  # صبر أكتر (من 10)
+  gradient_clip: 1.0      # أقوى clipping (من 5.0)
 
 output:
   results_dir: "results/Vanilla_RNN"
