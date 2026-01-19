@@ -1,6 +1,11 @@
 """
 سكريبت لتحضير البيانات من Flickr dataset على Kaggle
 Run this in Kaggle notebook after adding Flickr dataset
+
+ملاحظة مهمة:
+- الصور بتتحفظ بحجم 224×224 (مش 112×112)
+- ده عشان يطابق حجم ImageNet اللي الـ RegNet متدرب عليه
+- لو عايز توفر ذاكرة، غيّر لـ 112×112 في transforms.Resize()
 """
 
 import os
@@ -77,8 +82,9 @@ def prepare_flickr_data(
     print(f"  Using columns: image='{img_col}', caption='{cap_col}'")
     
     # تحويل الصور
+    # استخدم 224×224 لأن ImageEncoder (RegNet) متدرب على ImageNet بهذا الحجم
     transform = transforms.Compose([
-        transforms.Resize((112, 112)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
     ])
     
@@ -197,6 +203,7 @@ def prepare_flickr_data(
     print(f"  Val images: {data_dict['val_images'].shape}")
     print(f"  Val captions: {data_dict['val_captions'].shape}")
     print(f"  Vocabulary size: {len(vocab)} words")
+    print(f"  Image size: 224×224 (matches ImageNet pretrained model)")
     print("="*60)
     
     return data_dict
