@@ -117,13 +117,25 @@ def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=1
             # Generate caption
             generated = model.sample(img, max_length=20)
             
-            # Decode
-            gt_text = decode_captions(gt_caption, idx_to_word)
-            gen_text = decode_captions(generated[0], idx_to_word)
+            # Decode - convert tensors to ints
+            def decode_caption(caption_tensor, vocab):
+                """Decode caption tensor to text"""
+                words = []
+                for token_id in caption_tensor:
+                    # Convert tensor to int
+                    if isinstance(token_id, torch.Tensor):
+                        token_id = token_id.item()
+                    
+                    if token_id in vocab:
+                        word = vocab[token_id]
+                        if word not in ['<NULL>', '<START>', '<END>']:
+                            words.append(word)
+                        if word == '<END>':
+                            break
+                return ' '.join(words)
             
-            # Remove special tokens
-            gt_text = gt_text.replace('<START>', '').replace('<END>', '').replace('<NULL>', '').strip()
-            gen_text = gen_text.replace('<START>', '').replace('<END>', '').replace('<NULL>', '').strip()
+            gt_text = decode_caption(gt_caption, idx_to_word)
+            gen_text = decode_caption(generated[0], idx_to_word)
             
             references.append([gt_text])
             hypotheses.append(gen_text)
