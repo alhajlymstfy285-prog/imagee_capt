@@ -197,15 +197,23 @@ def prepare_flickr_data(
     }
     
     # حفظ البيانات
-    output_dir = os.path.dirname(output_path)
-    if output_dir:  # Only create if dirname is not empty
-        os.makedirs(output_dir, exist_ok=True)
-    else:
-        # If output_path is just a filename, create datasets folder
-        os.makedirs("./datasets", exist_ok=True)
+    # تأكد من وجود المجلد
+    output_dir = os.path.dirname(output_path) or "./datasets"
+    os.makedirs(output_dir, exist_ok=True)
     
-    print(f"\nSaving to: {os.path.abspath(output_path)}")
+    # تأكد من المسار الكامل
+    full_path = os.path.abspath(output_path)
+    print(f"\nSaving to: {full_path}")
+    
     torch.save(data_dict, output_path)
+    
+    # تأكد من الحفظ
+    if os.path.exists(output_path):
+        file_size = os.path.getsize(output_path) / (1024**2)  # MB
+        print(f"✓ File saved successfully ({file_size:.1f} MB)")
+    else:
+        print(f"✗ Error: File not saved!")
+        return None
     
     print("\n" + "="*60)
     print("✓ Dataset saved successfully!")
