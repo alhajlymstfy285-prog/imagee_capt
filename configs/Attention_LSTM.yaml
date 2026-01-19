@@ -7,6 +7,7 @@ model:
   input_dim: 512
   attn_dim: 2048  # ResNet50 layer4 output channels
   backbone: resnet50  # Options: resnet50, resnet101, regnet_x_400mf
+  image_encoder_pretrained: true  # Use ImageNet pretrained weights
   
 # GloVe Embeddings (optional)
 embeddings:

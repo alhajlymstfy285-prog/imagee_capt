@@ -229,7 +229,7 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         word_to_idx=word_to_idx,
         wordvec_dim=config["model"]["wordvec_dim"],
         hidden_dim=config["model"]["hidden_dim"],
-        image_encoder_pretrained=config["model"]["image_encoder_pretrained"],
+        image_encoder_pretrained=config["model"].get("image_encoder_pretrained", True),
         ignore_index=word_to_idx.get("<NULL>"),
     ).to(device)
     

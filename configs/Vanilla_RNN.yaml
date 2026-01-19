@@ -6,6 +6,7 @@ model:
   hidden_dim: 256
   input_dim: 512
   backbone: resnet50  # Options: resnet50, resnet101, regnet_x_400mf
+  image_encoder_pretrained: true  # Use ImageNet pretrained weights
   
 # GloVe Embeddings (optional)
 embeddings:
