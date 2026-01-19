@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from a5_helper import load_coco_captions, decode_captions
 from models.Vanilla_RNN import VanillaRNNCaptioner
+from metrics import evaluate_captions
 
 
 def load_dataset(dataset_path="./datasets/coco.pt"):
@@ -84,6 +85,55 @@ def evaluate(model, images, captions, batch_size, device):
     return total_loss / max(num_batches, 1)
 
 
+def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=100):
+    """
+    Evaluate using BLEU, METEOR, CIDEr metrics.
+    
+    Args:
+        model: trained model
+        images: validation images
+        captions: ground truth captions
+        idx_to_word: vocabulary mapping
+        device: cuda or cpu
+        num_samples: number of samples to evaluate (for speed)
+    
+    Returns:
+        Dictionary with metrics
+    """
+    model.eval()
+    
+    # Sample subset for faster evaluation
+    num_samples = min(num_samples, len(images))
+    sample_indices = torch.randperm(len(images))[:num_samples]
+    
+    references = []
+    hypotheses = []
+    
+    with torch.no_grad():
+        for idx in sample_indices:
+            img = images[idx:idx+1].to(device)
+            gt_caption = captions[idx]
+            
+            # Generate caption
+            generated = model.sample(img, max_length=20)
+            
+            # Decode
+            gt_text = decode_captions(gt_caption, idx_to_word)
+            gen_text = decode_captions(generated[0], idx_to_word)
+            
+            # Remove special tokens
+            gt_text = gt_text.replace('<START>', '').replace('<END>', '').replace('<NULL>', '').strip()
+            gen_text = gen_text.replace('<START>', '').replace('<END>', '').replace('<NULL>', '').strip()
+            
+            references.append([gt_text])
+            hypotheses.append(gen_text)
+    
+    # Compute metrics
+    metrics = evaluate_captions(references, hypotheses)
+    
+    return metrics
+
+
 def train(config, data, device):
     """Train Vanilla RNN model."""
     word_to_idx = data["vocab"]["token_to_idx"]
@@ -116,6 +166,9 @@ def train(config, data, device):
     patience = config["training"].get("early_stopping_patience", 10)
     gradient_clip = config["training"].get("gradient_clip", None)
     
+    # For metrics tracking
+    best_metrics = None
+    
     for epoch in range(config["training"]["num_epochs"]):
         start = time.time()
         
@@ -145,6 +198,22 @@ def train(config, data, device):
             # Save best model
             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             status = "✓ Best"
+            
+            # Compute metrics every 5 epochs when we have a new best
+            if (epoch + 1) % 5 == 0:
+                print("  Computing metrics...")
+                idx_to_word = data["vocab"]["idx_to_token"]
+                metrics = evaluate_metrics(
+                    model, 
+                    data["val_images"], 
+                    data["val_captions"],
+                    idx_to_word,
+                    device,
+                    num_samples=100
+                )
+                best_metrics = metrics
+                print(f"  BLEU-1: {metrics['BLEU-1']:.4f}, BLEU-4: {metrics['BLEU-4']:.4f}, "
+                      f"METEOR: {metrics['METEOR']:.4f}, CIDEr: {metrics['CIDEr']:.4f}")
         else:
             patience_counter += 1
             status = f"({patience_counter}/{patience})"
@@ -162,6 +231,21 @@ def train(config, data, device):
             # Restore best model
             model.load_state_dict(best_model_state)
             break
+    
+    # Final metrics evaluation
+    if best_metrics is None:
+        print("\nComputing final metrics...")
+        idx_to_word = data["vocab"]["idx_to_token"]
+        best_metrics = evaluate_metrics(
+            model, 
+            data["val_images"], 
+            data["val_captions"],
+            idx_to_word,
+            device,
+            num_samples=200  # More samples for final eval
+        )
+    
+    history["metrics"] = best_metrics
     
     return model, history
 
@@ -181,6 +265,7 @@ def save_results(config, history, model):
         "total_time": sum(history["epoch_times"]),
         "train_loss_history": history["train_loss"],
         "val_loss_history": history["val_loss"],
+        "metrics": history.get("metrics", {}),
     }
     
     with open(os.path.join(results_dir, "results.json"), "w") as f:
@@ -233,6 +318,10 @@ def main():
     print("\n" + "="*50)
     print("Vanilla RNN Training Complete!")
     print(f"Best Val Loss: {min(history['val_loss']):.4f}")
+    if "metrics" in history and history["metrics"]:
+        print("\nFinal Metrics:")
+        for name, value in history["metrics"].items():
+            print(f"  {name}: {value:.4f}")
     print("="*50)
 
 

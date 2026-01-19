@@ -5,3 +5,5 @@ seaborn>=0.12.0
 opencv-python>=4.7.0
 numpy>=1.23.0
 PyYAML>=6.0
+nltk>=3.8.0
+pycocoevalcap>=1.2
