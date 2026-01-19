@@ -37,13 +37,16 @@ git push -u origin main
 !git clone https://github.com/<your-username>/<your-repo>.git
 %cd <your-repo>
 
-# Cell 2: تثبيت المكتبات
+# Cell 2: فحص مسارات Dataset
+!python check_kaggle_paths.py
+
+# Cell 3: تثبيت المكتبات
 !pip install -q -r requirements.txt
 
-# Cell 3: تحضير البيانات من Flickr
+# Cell 4: تحضير البيانات من Flickr
 !python kaggle_setup.py
 
-# Cell 4: تدريب النموذج
+# Cell 5: تدريب النموذج
 !python training/Vanilla_RNN.py
 
 # Cell 5: عرض النتائج
@@ -117,6 +120,15 @@ training:
 
 ## 🐛 حل المشاكل
 
+### Dataset مش موجود
+```python
+# شغّل السكريبت ده الأول
+!python check_kaggle_paths.py
+
+# هيقولك المسارات الصحيحة
+# لو مش لاقي الـ dataset، تأكد إنك ضفته من Add Data
+```
+
 ### Out of Memory
 ```python
 # قلل batch size في config
@@ -126,9 +138,7 @@ batch_size: 16  # بدلاً من 64
 ### Dataset مش موجود
 ```python
 # تأكد من المسار
-import os
-print(os.listdir('/kaggle/input'))
-print(os.listdir('/kaggle/input/flickr-image-dataset'))
+!python check_kaggle_paths.py
 ```
 
 ### الكود مش شغال

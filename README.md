@@ -24,18 +24,29 @@ git push -u origin main
 
 استخدم **Flickr Image Dataset** من Kaggle:
 - Dataset: [flickr30k_images](https://www.kaggle.com/datasets/hsankesara/flickr-image-dataset)
+- أو ابحث عن "flickr" في Add Data
 
 ### 3. إنشاء Notebook على Kaggle
 
+**الإعدادات المطلوبة:**
+- Accelerator: **GPU T4 x2** (مجاني)
+- Internet: **On** (للـ pretrained models)
+- Persistence: **Files only**
+
+**الكود:**
 ```python
-# في Kaggle Notebook
-# أضف الـ dataset من Add Data
-# استنسخ الريبو
+# استنساخ الريبو
 !git clone <your-github-repo-url>
 %cd <repo-name>
 
+# فحص مسارات Dataset (مهم!)
+!python check_kaggle_paths.py
+
 # تثبيت المكتبات
 !pip install -r requirements.txt
+
+# تحضير البيانات
+!python kaggle_setup.py
 
 # تشغيل التدريب
 !python training/Vanilla_RNN.py
@@ -97,10 +108,18 @@ python training/Transformer.py
 
 ## 📝 ملاحظات للـ Kaggle
 
-1. **GPU**: فعّل GPU من Settings → Accelerator → GPU
-2. **Internet**: فعّل الإنترنت إذا كنت تستخدم pretrained models
+1. **GPU**: فعّل GPU من Settings → Accelerator → GPU T4 x2
+2. **Internet**: فعّل الإنترنت للـ pretrained models
 3. **Dataset**: أضف Flickr dataset من Add Data
 4. **Memory**: راقب استخدام الذاكرة (16GB limit)
+5. **Check Paths**: شغّل `check_kaggle_paths.py` أولاً للتأكد من المسارات
+
+## 📁 الملفات المساعدة
+
+- `check_kaggle_paths.py`: فحص مسارات Dataset على Kaggle
+- `kaggle_setup.py`: تحويل Flickr dataset للصيغة المطلوبة
+- `kaggle_notebook.ipynb`: Notebook جاهز للاستخدام
+- `KAGGLE_INSTRUCTIONS.md`: تعليمات مفصلة بالعربي
 
 ## 🐛 حل المشاكل الشائعة
 
