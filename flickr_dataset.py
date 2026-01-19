@@ -25,7 +25,8 @@ class FlickrDataset(Dataset):
         transform=None,
         split='train',
         train_ratio=0.8,
-        max_samples=None
+        max_samples=None,
+        augment=True
     ):
         """
         Args:
@@ -37,19 +38,35 @@ class FlickrDataset(Dataset):
             split: 'train' or 'val'
             train_ratio: Ratio for train/val split
             max_samples: Maximum number of samples to use (None = use all)
+            augment: Whether to apply data augmentation (only for training)
         """
         self.images_path = images_path
         self.vocab = vocab
         self.token_to_idx = vocab['token_to_idx']
         self.max_length = max_length
         self.max_samples = max_samples
+        self.split = split
+        self.augment = augment and (split == 'train')  # Only augment training data
         
-        # Default transform
+        # Default transform (without augmentation)
         if transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-            ])
+            if self.augment:
+                # Training: with augmentation
+                self.transform = transforms.Compose([
+                    transforms.Resize((256, 256)),
+                    transforms.RandomCrop((224, 224)),
+                    transforms.RandomHorizontalFlip(p=0.5),
+                    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                ])
+            else:
+                # Validation: no augmentation
+                self.transform = transforms.Compose([
+                    transforms.Resize((224, 224)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                ])
         else:
             self.transform = transform
         
@@ -148,7 +165,8 @@ def create_flickr_dataloaders(
     batch_size=32,
     num_workers=2,
     train_ratio=0.8,
-    max_samples=None
+    max_samples=None,
+    augmentation=True
 ):
     """
     Create train and val dataloaders for Flickr30k.
@@ -160,6 +178,7 @@ def create_flickr_dataloaders(
         num_workers: Number of workers for data loading
         train_ratio: Ratio of training data
         max_samples: Maximum number of samples to use (None = use all)
+        augmentation: Whether to apply data augmentation to training images
     
     Returns:
         train_loader, val_loader, vocab
@@ -208,13 +227,15 @@ def create_flickr_dataloaders(
     train_dataset = FlickrDataset(
         images_path, captions_file, vocab_dict,
         split='train', train_ratio=train_ratio,
-        max_samples=max_samples
+        max_samples=max_samples,
+        augment=augmentation  # Use augmentation parameter
     )
     
     val_dataset = FlickrDataset(
         images_path, captions_file, vocab_dict,
         split='val', train_ratio=train_ratio,
-        max_samples=max_samples
+        max_samples=max_samples,
+        augment=False  # No augmentation for validation
     )
     
     print(f"Train samples: {len(train_dataset)}")

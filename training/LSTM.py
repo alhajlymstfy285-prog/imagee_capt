@@ -30,14 +30,21 @@ def load_dataset_efficient(config=None):
     # Get sample settings from config
     use_sample = False
     sample_size = None
+    augmentation = True  # Default to True
     if config and "data" in config:
         use_sample = config["data"].get("use_sample", False)
         sample_size = config["data"].get("sample_size", 1000)
+        augmentation = config["data"].get("augmentation", True)
     
     if use_sample:
         print(f"Using SAMPLE mode: {sample_size} images only (for testing)")
     else:
         print("Using FULL dataset: ~30,000 images")
+    
+    if augmentation:
+        print("Data augmentation: ENABLED (RandomCrop, HorizontalFlip, ColorJitter)")
+    else:
+        print("Data augmentation: DISABLED")
     
     print("Creating DataLoaders (memory efficient)...")
     train_loader, val_loader, vocab = create_flickr_dataloaders(
@@ -45,7 +52,8 @@ def load_dataset_efficient(config=None):
         captions_file,
         batch_size=32,
         num_workers=2,
-        max_samples=sample_size if use_sample else None
+        max_samples=sample_size if use_sample else None,
+        augmentation=augmentation
     )
     
     return train_loader, val_loader, vocab

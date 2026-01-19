@@ -16,7 +16,7 @@ embeddings:
 
 # Training parameters
 training:
-  num_epochs: 1
+  num_epochs: 15
   batch_size: 128
   learning_rate: 0.001
   weight_decay: 0.0001
@@ -30,8 +30,9 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  use_sample: true  # true = استخدام sample صغير للتجربة، false = استخدام كل البيانات
+  use_sample: false  # true = استخدام sample صغير للتجربة، false = استخدام كل البيانات
   sample_size: 1000  # عدد الصور في الـ sample
+  augmentation: true  # true = استخدام data augmentation للصور أثناء التدريب
 
 # Regularization
 regularization:

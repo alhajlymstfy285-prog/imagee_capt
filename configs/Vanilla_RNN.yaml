@@ -30,6 +30,7 @@ data:
   test_split: 0.1
   use_sample: false  # true = استخدام sample صغير للتجربة، false = استخدام كل البيانات
   sample_size: 1000  # عدد الصور في الـ sample (يُستخدم فقط إذا use_sample = true)
+  augmentation: true  # true = استخدام data augmentation للصور أثناء التدريب
 
 # Regularization
 regularization:
