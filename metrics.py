@@ -201,7 +201,7 @@ def compute_cider_simple(references_list, hypotheses_list):
 
 def evaluate_captions(references_list, hypotheses_list):
     """
-    Compute all metrics: BLEU-1, BLEU-4, METEOR, CIDEr.
+    Compute all metrics: BLEU-1, BLEU-2, BLEU-3, BLEU-4, METEOR, CIDEr.
     
     Args:
         references_list: list of reference sentences (or lists of references)
@@ -220,6 +220,8 @@ def evaluate_captions(references_list, hypotheses_list):
     
     metrics = {
         'BLEU-1': compute_bleu_corpus(refs_normalized, hypotheses_list, n=1),
+        'BLEU-2': compute_bleu_corpus(refs_normalized, hypotheses_list, n=2),
+        'BLEU-3': compute_bleu_corpus(refs_normalized, hypotheses_list, n=3),
         'BLEU-4': compute_bleu_corpus(refs_normalized, hypotheses_list, n=4),
         'METEOR': compute_meteor_corpus(refs_normalized, hypotheses_list),
         'CIDEr': compute_cider_simple(refs_normalized, hypotheses_list),

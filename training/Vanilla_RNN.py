@@ -270,7 +270,7 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     history = {"train_loss": [], "val_loss": [], "epoch_times": []}
     best_val_loss = float('inf')
     patience_counter = 0
-    patience = config["training"].get("early_stopping_patience", 10)
+    patience = config["training"].get("early_stopping_patience", 25)
     gradient_clip = config["training"].get("gradient_clip", None)
     best_metrics = None
     
