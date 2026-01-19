@@ -11,7 +11,7 @@ model:
 # GloVe Embeddings (optional)
 embeddings:
   use_glove: true
-  glove_path: "glove.6B.300d.txt"  # Path to GloVe file
+  glove_path: "/kaggle/input/glove-embeddings/glove.6B.300d.txt"  # Path to GloVe file
   freeze: false  # Set to true to freeze embeddings during training
 
 # Training parameters
