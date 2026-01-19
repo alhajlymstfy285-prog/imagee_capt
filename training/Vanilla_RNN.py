@@ -340,120 +340,120 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     return model, history
 
 
-def train(config, data, device):
-    """Original train function (for backward compatibility)."""
-    word_to_idx = data["vocab"]["token_to_idx"]
+# def train(config, data, device):
+#     """Original train function (for backward compatibility)."""
+#     word_to_idx = data["vocab"]["token_to_idx"]
     
-    model = VanillaRNNCaptioner(
-        word_to_idx=word_to_idx,
-        wordvec_dim=config["model"]["wordvec_dim"],
-        hidden_dim=config["model"]["hidden_dim"],
-        image_encoder_pretrained=config["model"]["image_encoder_pretrained"],
-        ignore_index=word_to_idx.get("<NULL>"),
-    ).to(device)
+#     model = VanillaRNNCaptioner(
+#         word_to_idx=word_to_idx,
+#         wordvec_dim=config["model"]["wordvec_dim"],
+#         hidden_dim=config["model"]["hidden_dim"],
+#         image_encoder_pretrained=config["model"]["image_encoder_pretrained"],
+#         ignore_index=word_to_idx.get("<NULL>"),
+#     ).to(device)
     
-    print(f"Model parameters: {model.count_parameters():,}")
+#     print(f"Model parameters: {model.count_parameters():,}")
     
-    optimizer = torch.optim.AdamW(  # استخدم AdamW بدل Adam
-        model.parameters(), 
-        lr=config["training"]["learning_rate"],
-        weight_decay=config["training"]["weight_decay"],
-        betas=(0.9, 0.999)
-    )
+#     optimizer = torch.optim.AdamW(  # استخدم AdamW بدل Adam
+#         model.parameters(), 
+#         lr=config["training"]["learning_rate"],
+#         weight_decay=config["training"]["weight_decay"],
+#         betas=(0.9, 0.999)
+#     )
     
-    # Cosine annealing scheduler بدل StepLR
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, T_0=10, T_mult=2, eta_min=1e-6
-    )
+#     # Cosine annealing scheduler بدل StepLR
+#     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+#         optimizer, T_0=10, T_mult=2, eta_min=1e-6
+#     )
     
-    history = {"train_loss": [], "val_loss": [], "epoch_times": []}
-    best_val_loss = float('inf')
-    patience_counter = 0
-    patience = config["training"].get("early_stopping_patience", 10)
-    gradient_clip = config["training"].get("gradient_clip", None)
+#     history = {"train_loss": [], "val_loss": [], "epoch_times": []}
+#     best_val_loss = float('inf')
+#     patience_counter = 0
+#     patience = config["training"].get("early_stopping_patience", 10)
+#     gradient_clip = config["training"].get("gradient_clip", None)
     
-    # For metrics tracking
-    best_metrics = None
+#     # For metrics tracking
+#     best_metrics = None
     
-    for epoch in range(config["training"]["num_epochs"]):
-        start = time.time()
+#     for epoch in range(config["training"]["num_epochs"]):
+#         start = time.time()
         
-        train_loss = train_epoch(
-            model, optimizer,
-            data["train_images"], data["train_captions"],
-            config["training"]["batch_size"], device,
-            gradient_clip=gradient_clip
-        )
-        val_loss = evaluate(
-            model,
-            data["val_images"], data["val_captions"],
-            config["training"]["batch_size"], device
-        )
+#         train_loss = train_epoch(
+#             model, optimizer,
+#             data["train_images"], data["train_captions"],
+#             config["training"]["batch_size"], device,
+#             gradient_clip=gradient_clip
+#         )
+#         val_loss = evaluate(
+#             model,
+#             data["val_images"], data["val_captions"],
+#             config["training"]["batch_size"], device
+#         )
         
-        epoch_time = time.time() - start
-        history["train_loss"].append(train_loss)
-        history["val_loss"].append(val_loss)
-        history["epoch_times"].append(epoch_time)
+#         epoch_time = time.time() - start
+#         history["train_loss"].append(train_loss)
+#         history["val_loss"].append(val_loss)
+#         history["epoch_times"].append(epoch_time)
         
-        scheduler.step()
+#         scheduler.step()
         
-        # Early stopping check
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-            # Save best model
-            best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-            status = "✓ Best"
+#         # Early stopping check
+#         if val_loss < best_val_loss:
+#             best_val_loss = val_loss
+#             patience_counter = 0
+#             # Save best model
+#             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+#             status = "✓ Best"
             
-            # Compute metrics every 5 epochs when we have a new best
-            if (epoch + 1) % 5 == 0:
-                print("  Computing metrics...")
-                idx_to_word = data["vocab"]["idx_to_token"]
-                metrics = evaluate_metrics(
-                    model, 
-                    data["val_images"], 
-                    data["val_captions"],
-                    idx_to_word,
-                    device,
-                    num_samples=100
-                )
-                best_metrics = metrics
-                print(f"  BLEU-1: {metrics['BLEU-1']:.4f}, BLEU-4: {metrics['BLEU-4']:.4f}, "
-                      f"METEOR: {metrics['METEOR']:.4f}, CIDEr: {metrics['CIDEr']:.4f}")
-        else:
-            patience_counter += 1
-            status = f"({patience_counter}/{patience})"
+#             # Compute metrics every 5 epochs when we have a new best
+#             if (epoch + 1) % 5 == 0:
+#                 print("  Computing metrics...")
+#                 idx_to_word = data["vocab"]["idx_to_token"]
+#                 metrics = evaluate_metrics(
+#                     model, 
+#                     data["val_images"], 
+#                     data["val_captions"],
+#                     idx_to_word,
+#                     device,
+#                     num_samples=100
+#                 )
+#                 best_metrics = metrics
+#                 print(f"  BLEU-1: {metrics['BLEU-1']:.4f}, BLEU-4: {metrics['BLEU-4']:.4f}, "
+#                       f"METEOR: {metrics['METEOR']:.4f}, CIDEr: {metrics['CIDEr']:.4f}")
+#         else:
+#             patience_counter += 1
+#             status = f"({patience_counter}/{patience})"
         
-        # Print with learning rate
-        current_lr = optimizer.param_groups[0]['lr']
-        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
-              f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
-              f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
+#         # Print with learning rate
+#         current_lr = optimizer.param_groups[0]['lr']
+#         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
+#               f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
+#               f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
         
-        # Early stopping
-        if patience_counter >= patience:
-            print(f"\n⚠️ Early stopping at epoch {epoch+1}")
-            print(f"Best Val Loss: {best_val_loss:.4f}")
-            # Restore best model
-            model.load_state_dict(best_model_state)
-            break
+#         # Early stopping
+#         if patience_counter >= patience:
+#             print(f"\n⚠️ Early stopping at epoch {epoch+1}")
+#             print(f"Best Val Loss: {best_val_loss:.4f}")
+#             # Restore best model
+#             model.load_state_dict(best_model_state)
+#             break
     
-    # Final metrics evaluation
-    if best_metrics is None:
-        print("\nComputing final metrics...")
-        idx_to_word = data["vocab"]["idx_to_token"]
-        best_metrics = evaluate_metrics(
-            model, 
-            data["val_images"], 
-            data["val_captions"],
-            idx_to_word,
-            device,
-            num_samples=200  # More samples for final eval
-        )
+#     # Final metrics evaluation
+#     if best_metrics is None:
+#         print("\nComputing final metrics...")
+#         idx_to_word = data["vocab"]["idx_to_token"]
+#         best_metrics = evaluate_metrics(
+#             model, 
+#             data["val_images"], 
+#             data["val_captions"],
+#             idx_to_word,
+#             device,
+#             num_samples=200  # More samples for final eval
+#         )
     
-    history["metrics"] = best_metrics
+#     history["metrics"] = best_metrics
     
-    return model, history
+#     return model, history
 
 
 def save_results(config, history, model):

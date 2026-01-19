@@ -1,5 +1,5 @@
 """
-Vanilla RNN model for image captioning ablation study.
+Vanilla RNN model for image captioning
 """
 
 import sys
