@@ -479,6 +479,7 @@ class CaptioningRNN(nn.Module):
             self.rnn = AttentionLSTM(wordvec_dim, hidden_dim, self.image_encoder.out_channels)
 
         self.output_projection = nn.Linear(hidden_dim, vocab_size)
+        self.dropout = nn.Dropout(0.3)  # Add dropout layer
         ######################################################################
         #                            END OF YOUR CODE                        #
         ######################################################################
@@ -535,14 +536,15 @@ class CaptioningRNN(nn.Module):
             # Pool features for RNN/LSTM: (N, C, H, W) -> (N, C)
             features_pooled = features.mean(dim=[2, 3])  # Global average pooling
             h0 = self.feature_projection(features_pooled)  # (N, C) -> (N, hidden_dim)
-            self.dropout = nn.Dropout(0.3)
-            word_embedd = self.dropout(self.word_embedd(captions_in))
+            word_embedd = self.dropout(self.word_embedd(captions_in))  # Apply dropout
             h = self.rnn(word_embedd, h0)
+            h = self.dropout(h)  # Apply dropout after RNN
         elif self.cell_type == 'attn':
             # Pass features directly for AttentionLSTM: (N, C, 4, 4)
             # The projection to (N, H, 4, 4) happens inside AttentionLSTM
-            word_embedd = self.word_embedd(captions_in)
+            word_embedd = self.dropout(self.word_embedd(captions_in))
             h = self.rnn(word_embedd, features)
+            h = self.dropout(h)
 
         scores = self.output_projection(h)
 

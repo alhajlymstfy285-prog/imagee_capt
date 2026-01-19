@@ -2,16 +2,19 @@
 
 model:
   cell_type: "rnn"
-  wordvec_dim: 128
-  hidden_dim: 128
+  wordvec_dim: 256        # زود من 128
+  hidden_dim: 512         # زود من 128
   image_encoder_pretrained: true
+  dropout: 0.3            # أضف dropout
 
 training:
   num_epochs: 50
-  batch_size: 64
-  learning_rate: 0.001
+  batch_size: 32          # قلل من 64 (عشان الـ hidden_dim أكبر)
+  learning_rate: 0.0005   # قلل من 0.001
   weight_decay: 0.0001
   lr_decay: 0.95
+  early_stopping_patience: 10  # وقف لو Val loss مش بيتحسن
+  gradient_clip: 5.0      # منع exploding gradients
 
 output:
   results_dir: "results/Vanilla_RNN"

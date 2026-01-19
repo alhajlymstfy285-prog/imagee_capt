@@ -36,7 +36,7 @@ def load_config(config_path: str = "configs/Vanilla_RNN.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def train_epoch(model, optimizer, images, captions, batch_size, device):
+def train_epoch(model, optimizer, images, captions, batch_size, device, gradient_clip=None):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
@@ -52,6 +52,11 @@ def train_epoch(model, optimizer, images, captions, batch_size, device):
         optimizer.zero_grad()
         loss = model(batch_img, batch_cap)
         loss.backward()
+        
+        # Gradient clipping
+        if gradient_clip:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+        
         optimizer.step()
         total_loss += loss.item()
     
@@ -88,12 +93,20 @@ def train(config, data, device):
     
     print(f"Model parameters: {model.count_parameters():,}")
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=config["training"]["learning_rate"],weight_decay=config["training"]["weight_decay"])
+    optimizer = torch.optim.Adam(
+        model.parameters(), 
+        lr=config["training"]["learning_rate"],
+        weight_decay=config["training"]["weight_decay"]
+    )
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=1, gamma=config["training"]["lr_decay"]
     )
     
     history = {"train_loss": [], "val_loss": [], "epoch_times": []}
+    best_val_loss = float('inf')
+    patience_counter = 0
+    patience = config["training"].get("early_stopping_patience", 10)
+    gradient_clip = config["training"].get("gradient_clip", None)
     
     for epoch in range(config["training"]["num_epochs"]):
         start = time.time()
@@ -101,7 +114,8 @@ def train(config, data, device):
         train_loss = train_epoch(
             model, optimizer,
             data["train_images"], data["train_captions"],
-            config["training"]["batch_size"], device
+            config["training"]["batch_size"], device,
+            gradient_clip=gradient_clip
         )
         val_loss = evaluate(
             model,
@@ -116,8 +130,28 @@ def train(config, data, device):
         
         scheduler.step()
         
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            # Save best model
+            best_model_state = model.state_dict().copy()
+            status = "✓ Best"
+        else:
+            patience_counter += 1
+            status = f"({patience_counter}/{patience})"
+        
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
-              f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, Time: {epoch_time:.1f}s")
+              f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
+              f"Time: {epoch_time:.1f}s {status}")
+        
+        # Early stopping
+        if patience_counter >= patience:
+            print(f"\n⚠️ Early stopping at epoch {epoch+1}")
+            print(f"Best Val Loss: {best_val_loss:.4f}")
+            # Restore best model
+            model.load_state_dict(best_model_state)
+            break
     
     return model, history
 
