@@ -458,7 +458,7 @@ def train(config, data, device):
 
 def save_results(config, history, model):
     """Save training results."""
-    results_dir = config["output"]["results_dir"]
+    results_dir = config.get("output", {}).get("results_dir", "results/Vanilla_RNN")
     os.makedirs(results_dir, exist_ok=True)
     
     # Save history
@@ -478,30 +478,31 @@ def save_results(config, history, model):
         json.dump(results, f, indent=2)
     
     # Save model
-    if config["output"]["save_model"]:
+    if config.get("output", {}).get("save_model", True):
         torch.save(model.state_dict(), os.path.join(results_dir, "model.pt"))
     
     # Plot training curves
-    plt.figure(figsize=(10, 4))
-    plt.subplot(1, 2, 1)
-    plt.plot(history["train_loss"], label="Train")
-    plt.plot(history["val_loss"], label="Val")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Vanilla RNN Training")
-    plt.legend()
-    plt.grid(alpha=0.3)
+    if config.get("output", {}).get("save_plots", True):
+        plt.figure(figsize=(10, 4))
+        plt.subplot(1, 2, 1)
+        plt.plot(history["train_loss"], label="Train")
+        plt.plot(history["val_loss"], label="Val")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Vanilla RNN Training")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        
+        plt.subplot(1, 2, 2)
+        plt.bar(["Train", "Val"], [history["train_loss"][-1], history["val_loss"][-1]])
+        plt.ylabel("Final Loss")
+        plt.title("Final Losses")
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, "training_curves.png"), dpi=150)
+        plt.close()
     
-    plt.subplot(1, 2, 2)
-    plt.bar(["Train", "Val"], [history["train_loss"][-1], history["val_loss"][-1]])
-    plt.ylabel("Final Loss")
-    plt.title("Final Losses")
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(results_dir, "training_curves.png"), dpi=150)
-    plt.close()
-    
-    print(f"\nResults saved to {results_dir}/")
+    print(f"\n✅ Results saved to {results_dir}/")
 
 
 def main():

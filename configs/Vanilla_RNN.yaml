@@ -16,7 +16,7 @@ embeddings:
 
 # Training parameters
 training:
-  num_epochs: 5
+  num_epochs: 1
   batch_size: 128
   learning_rate: 0.001
   weight_decay: 0.0001
@@ -47,6 +47,12 @@ scheduler:
   type: step
   step_size: 10
   gamma: 0.5
+
+# Output
+output:
+  results_dir: "results/Vanilla_RNN"
+  save_model: true
+  save_plots: true
 
 # Checkpointing
 checkpoint:
