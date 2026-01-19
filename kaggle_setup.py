@@ -20,7 +20,8 @@ def prepare_flickr_data(
     flickr_images_path="/kaggle/input/flickr-image-dataset/flickr30k_images/flickr30k_images",
     captions_file="/kaggle/input/flickr-image-dataset/flickr30k_images/results.csv",
     output_path="./datasets/flickr.pt",
-    max_samples=5000
+    max_samples=None,  # None = استخدم كل الداتا (~31k صورة)
+    val_split=0.2      # 20% validation
 ):
     """
     تحويل Flickr dataset إلى الصيغة المطلوبة
@@ -29,7 +30,8 @@ def prepare_flickr_data(
         flickr_images_path: مسار مجلد الصور
         captions_file: مسار ملف التعليقات
         output_path: مسار حفظ الملف المعالج
-        max_samples: أقصى عدد من الصور (للتدريب السريع)
+        max_samples: أقصى عدد من الصور (None = استخدم كل الداتا ~31k)
+        val_split: نسبة الـ validation (0.2 = 20%)
     """
     
     print("="*60)
@@ -96,15 +98,19 @@ def prepare_flickr_data(
     captions_list = []
     
     # معالجة البيانات
-    image_names = df[img_col].unique()[:max_samples]
-    print(f"\nProcessing {len(image_names)} images...")
+    image_names = df[img_col].unique()
+    if max_samples:
+        image_names = image_names[:max_samples]
+    
+    print(f"\nProcessing {len(image_names)} images (ALL DATASET)...")
+    print("This will take ~10-15 minutes...")
     
     processed = 0
     skipped = 0
     
     for i, img_name in enumerate(image_names):
-        if i % 500 == 0 and i > 0:
-            print(f"  Processed {i}/{len(image_names)} images...")
+        if i % 1000 == 0 and i > 0:
+            print(f"  Processed {i}/{len(image_names)} images ({i*100//len(image_names)}%)...")
         
         # Try different path combinations
         img_path = os.path.join(flickr_images_path, img_name)
@@ -165,7 +171,7 @@ def prepare_flickr_data(
         raise ValueError("No images were successfully processed!")
     
     # تقسيم البيانات (80% train, 20% val)
-    split_idx = int(0.8 * len(images_list))
+    split_idx = int((1 - val_split) * len(images_list))
     print(f"\nSplitting data: {split_idx} train, {len(images_list)-split_idx} val")
     
     # Pad captions to same length
