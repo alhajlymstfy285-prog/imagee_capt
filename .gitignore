@@ -1,0 +1,4 @@
+.vscode/
+.kiro/
+*.pyc
+*.pt

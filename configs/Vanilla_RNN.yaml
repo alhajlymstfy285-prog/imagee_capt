@@ -1,0 +1,18 @@
+# Vanilla RNN Configuration
+
+model:
+  cell_type: "rnn"
+  wordvec_dim: 128
+  hidden_dim: 128
+  image_encoder_pretrained: true
+
+training:
+  num_epochs: 50
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  lr_decay: 0.95
+
+output:
+  results_dir: "results/Vanilla_RNN"
+  save_model: true
