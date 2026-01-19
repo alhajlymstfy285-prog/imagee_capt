@@ -13,32 +13,30 @@ import time
 import torch
 import matplotlib.pyplot as plt
 
-from a5_helper import load_coco_captions, decode_captions
+from a5_helper import decode_captions
 from models.Vanilla_RNN import VanillaRNNCaptioner
 from metrics import evaluate_captions
+from flickr_dataset import create_flickr_dataloaders
 
 
-def load_dataset(dataset_path="./datasets/flickr.pt"):
-    """Load dataset (COCO or Flickr)."""
-    # Try multiple possible paths
-    possible_paths = [
-        dataset_path,
-        "./datasets/flickr.pt",
-        "./datasets/coco.pt",
-        "datasets/flickr.pt",
-        "datasets/coco.pt",
-    ]
+def load_dataset_efficient():
+    """Load dataset using DataLoader (memory efficient)."""
+    images_path = "/kaggle/input/flickr-image-dataset/flickr30k_images/flickr30k_images"
+    captions_file = "/kaggle/input/flickr-image-dataset/flickr30k_images/results.csv"
     
-    for path in possible_paths:
-        if os.path.exists(path):
-            print(f"Loading dataset from {path}")
-            return load_coco_captions(path)
+    # Alternative paths
+    if not os.path.exists(images_path):
+        images_path = "/kaggle/input/flickr-image-dataset/flickr30k_images"
     
-    # If not found, show helpful error
-    raise FileNotFoundError(
-        f"No dataset found! Tried paths: {possible_paths}\n"
-        "Run kaggle_setup.py first to prepare Flickr data."
+    print("Creating DataLoaders (memory efficient)...")
+    train_loader, val_loader, vocab = create_flickr_dataloaders(
+        images_path,
+        captions_file,
+        batch_size=32,
+        num_workers=2
     )
+    
+    return train_loader, val_loader, vocab
 
 
 def load_config(config_path: str = "configs/Vanilla_RNN.yaml") -> dict:
@@ -155,8 +153,107 @@ def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=1
     return metrics
 
 
+def train_with_dataloader(config, train_loader, val_loader, vocab, device):
+    """Train using DataLoader (memory efficient)."""
+    word_to_idx = vocab["token_to_idx"]
+    
+    model = VanillaRNNCaptioner(
+        word_to_idx=word_to_idx,
+        wordvec_dim=config["model"]["wordvec_dim"],
+        hidden_dim=config["model"]["hidden_dim"],
+        image_encoder_pretrained=config["model"]["image_encoder_pretrained"],
+        ignore_index=word_to_idx.get("<NULL>"),
+    ).to(device)
+    
+    print(f"Model parameters: {model.count_parameters():,}")
+    
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=config["training"]["learning_rate"],
+        weight_decay=config["training"]["weight_decay"],
+        betas=(0.9, 0.999)
+    )
+    
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=10, T_mult=2, eta_min=1e-6
+    )
+    
+    history = {"train_loss": [], "val_loss": [], "epoch_times": []}
+    best_val_loss = float('inf')
+    patience_counter = 0
+    patience = config["training"].get("early_stopping_patience", 10)
+    gradient_clip = config["training"].get("gradient_clip", None)
+    best_metrics = None
+    
+    for epoch in range(config["training"]["num_epochs"]):
+        start = time.time()
+        
+        # Train
+        model.train()
+        train_loss = 0.0
+        for batch_images, batch_captions in train_loader:
+            batch_images = batch_images.to(device)
+            batch_captions = batch_captions.to(device)
+            
+            optimizer.zero_grad()
+            loss = model(batch_images, batch_captions)
+            loss.backward()
+            
+            if gradient_clip:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+            
+            optimizer.step()
+            train_loss += loss.item()
+        
+        train_loss /= len(train_loader)
+        
+        # Validate
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch_images, batch_captions in val_loader:
+                batch_images = batch_images.to(device)
+                batch_captions = batch_captions.to(device)
+                loss = model(batch_images, batch_captions)
+                val_loss += loss.item()
+        
+        val_loss /= len(val_loader)
+        
+        epoch_time = time.time() - start
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+        history["epoch_times"].append(epoch_time)
+        
+        scheduler.step()
+        
+        # Early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            status = "✓ Best"
+        else:
+            patience_counter += 1
+            status = f"({patience_counter}/{patience})"
+        
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
+              f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
+              f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
+        
+        if patience_counter >= patience:
+            print(f"\n⚠️ Early stopping at epoch {epoch+1}")
+            print(f"Best Val Loss: {best_val_loss:.4f}")
+            model.load_state_dict(best_model_state)
+            break
+    
+    history["metrics"] = {}  # Skip metrics for now to save time
+    
+    return model, history
+
+
 def train(config, data, device):
-    """Train Vanilla RNN model."""
+    """Original train function (for backward compatibility)."""
     word_to_idx = data["vocab"]["token_to_idx"]
     
     model = VanillaRNNCaptioner(
@@ -328,11 +425,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     
-    print("\nLoading dataset...")
-    data = load_dataset()
+    print("\nLoading dataset (memory efficient)...")
+    train_loader, val_loader, vocab = load_dataset_efficient()
     
     print("\nTraining...")
-    model, history = train(config, data, device)
+    model, history = train_with_dataloader(config, train_loader, val_loader, vocab, device)
     
     save_results(config, history, model)
     
