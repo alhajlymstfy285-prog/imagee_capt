@@ -18,18 +18,27 @@ from models.Vanilla_RNN import VanillaRNNCaptioner
 from metrics import evaluate_captions
 
 
-def load_dataset(dataset_path="./datasets/coco.pt"):
+def load_dataset(dataset_path="./datasets/flickr.pt"):
     """Load dataset (COCO or Flickr)."""
-    if os.path.exists(dataset_path):
-        print(f"Loading dataset from {dataset_path}")
-        return load_coco_captions(dataset_path)
-    elif os.path.exists("./datasets/flickr.pt"):
-        print("Loading Flickr dataset...")
-        return load_coco_captions("./datasets/flickr.pt")
-    else:
-        raise FileNotFoundError(
-            "No dataset found! Run kaggle_setup.py first to prepare Flickr data."
-        )
+    # Try multiple possible paths
+    possible_paths = [
+        dataset_path,
+        "./datasets/flickr.pt",
+        "./datasets/coco.pt",
+        "datasets/flickr.pt",
+        "datasets/coco.pt",
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            print(f"Loading dataset from {path}")
+            return load_coco_captions(path)
+    
+    # If not found, show helpful error
+    raise FileNotFoundError(
+        f"No dataset found! Tried paths: {possible_paths}\n"
+        "Run kaggle_setup.py first to prepare Flickr data."
+    )
 
 
 def load_config(config_path: str = "configs/Vanilla_RNN.yaml") -> dict:
