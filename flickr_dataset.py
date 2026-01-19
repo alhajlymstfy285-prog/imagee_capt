@@ -24,7 +24,8 @@ class FlickrDataset(Dataset):
         max_length=32,
         transform=None,
         split='train',
-        train_ratio=0.8
+        train_ratio=0.8,
+        max_samples=None
     ):
         """
         Args:
@@ -35,11 +36,13 @@ class FlickrDataset(Dataset):
             transform: Image transforms
             split: 'train' or 'val'
             train_ratio: Ratio for train/val split
+            max_samples: Maximum number of samples to use (None = use all)
         """
         self.images_path = images_path
         self.vocab = vocab
         self.token_to_idx = vocab['token_to_idx']
         self.max_length = max_length
+        self.max_samples = max_samples
         
         # Default transform
         if transform is None:
@@ -53,6 +56,12 @@ class FlickrDataset(Dataset):
         # Load captions
         df = pd.read_csv(captions_file, delimiter='|', encoding='utf-8')
         df.columns = df.columns.str.strip()
+        
+        # Limit samples if specified
+        if max_samples is not None:
+            img_col_temp = 'image_name' if 'image_name' in df.columns else df.columns[0]
+            unique_images = df[img_col_temp].unique()[:max_samples]
+            df = df[df[img_col_temp].isin(unique_images)]
         
         # Detect column names
         if 'image_name' in df.columns:
@@ -138,10 +147,19 @@ def create_flickr_dataloaders(
     captions_file,
     batch_size=32,
     num_workers=2,
-    train_ratio=0.8
+    train_ratio=0.8,
+    max_samples=None
 ):
     """
     Create train and val dataloaders for Flickr30k.
+    
+    Args:
+        images_path: Path to images directory
+        captions_file: Path to captions CSV file
+        batch_size: Batch size for training
+        num_workers: Number of workers for data loading
+        train_ratio: Ratio of training data
+        max_samples: Maximum number of samples to use (None = use all)
     
     Returns:
         train_loader, val_loader, vocab
@@ -150,6 +168,15 @@ def create_flickr_dataloaders(
     print("Building vocabulary...")
     df = pd.read_csv(captions_file, delimiter='|', encoding='utf-8')
     df.columns = df.columns.str.strip()
+    
+    # Limit samples if specified
+    if max_samples is not None:
+        print(f"⚠️  Limiting dataset to {max_samples} samples")
+        # Get unique images
+        img_col = 'image_name' if 'image_name' in df.columns else df.columns[0]
+        unique_images = df[img_col].unique()[:max_samples]
+        df = df[df[img_col].isin(unique_images)]
+        print(f"   Using {len(unique_images)} images with {len(df)} captions")
     
     # Detect columns
     if 'image_name' in df.columns:
@@ -180,13 +207,18 @@ def create_flickr_dataloaders(
     # Create datasets
     train_dataset = FlickrDataset(
         images_path, captions_file, vocab_dict,
-        split='train', train_ratio=train_ratio
+        split='train', train_ratio=train_ratio,
+        max_samples=max_samples
     )
     
     val_dataset = FlickrDataset(
         images_path, captions_file, vocab_dict,
-        split='val', train_ratio=train_ratio
+        split='val', train_ratio=train_ratio,
+        max_samples=max_samples
     )
+    
+    print(f"Train samples: {len(train_dataset)}")
+    print(f"Val samples: {len(val_dataset)}")
     
     # Create dataloaders
     train_loader = torch.utils.data.DataLoader(

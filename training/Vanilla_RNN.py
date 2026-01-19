@@ -19,7 +19,7 @@ from metrics import evaluate_captions
 from flickr_dataset import create_flickr_dataloaders
 
 
-def load_dataset_efficient():
+def load_dataset_efficient(config=None):
     """Load dataset using DataLoader (memory efficient)."""
     images_path = "/kaggle/input/flickr-image-dataset/flickr30k_images/flickr30k_images"
     captions_file = "/kaggle/input/flickr-image-dataset/flickr30k_images/results.csv"
@@ -28,12 +28,25 @@ def load_dataset_efficient():
     if not os.path.exists(images_path):
         images_path = "/kaggle/input/flickr-image-dataset/flickr30k_images"
     
+    # Get sample settings from config
+    use_sample = False
+    sample_size = None
+    if config and "data" in config:
+        use_sample = config["data"].get("use_sample", False)
+        sample_size = config["data"].get("sample_size", 1000)
+    
+    if use_sample:
+        print(f"Using SAMPLE mode: {sample_size} images only (for testing)")
+    else:
+        print("Using FULL dataset: ~30,000 images")
+    
     print("Creating DataLoaders (memory efficient)...")
     train_loader, val_loader, vocab = create_flickr_dataloaders(
         images_path,
         captions_file,
         batch_size=32,
-        num_workers=2
+        num_workers=2,
+        max_samples=sample_size if use_sample else None
     )
     
     return train_loader, val_loader, vocab
@@ -501,7 +514,7 @@ def main():
     print(f"Device: {device}")
     
     print("\nLoading dataset (memory efficient)...")
-    train_loader, val_loader, vocab = load_dataset_efficient()
+    train_loader, val_loader, vocab = load_dataset_efficient(config)
     
     print("\nTraining...")
     model, history = train_with_dataloader(config, train_loader, val_loader, vocab, device)
