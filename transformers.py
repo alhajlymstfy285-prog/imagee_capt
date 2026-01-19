@@ -14,30 +14,11 @@ def hello_transformers():
 
 def generate_token_dict(vocab):
     """
-    The function creates a hash map from the elements in the vocabulary to
-    to a unique positive integer value.
-
-    args:
-        vocab: This is a 1D list of strings containing all the items in the vocab
-
-    Returns:
-        token_dict: a python dictionary with key as the string item in the vocab
-            and value as a unique integer value
+    Creates a hash map from vocabulary elements to unique integer values.
     """
-    # initialize a empty dictionary
     token_dict = {}
-    ##############################################################################
-    # TODO: Use this function to assign a unique whole number element to each    #
-    # element present in the vocab list. To do this, map the first element in the#
-    # vocab to 0 and the last element in the vocab to len(vocab), and the        #
-    # elements in between as consequetive number.                                #
-    ##############################################################################
-    # Replace "pass" statement with your code
-    for tok,str in enumerate(vocab):
-        token_dict[str]=tok
-    ##############################################################################
-    #               END OF YOUR CODE                                             #
-    ##############################################################################
+    for tok, str in enumerate(vocab):
+        token_dict[str] = tok
     return token_dict
 
 

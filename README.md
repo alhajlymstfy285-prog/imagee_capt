@@ -64,6 +64,45 @@ numpy>=1.23.0
 PyYAML>=6.0
 ```
 
+## 🎯 استخدام GloVe Embeddings
+
+يمكنك استخدام GloVe embeddings المدربة مسبقاً بدلاً من تدريب embeddings من الصفر:
+
+### 1. تحميل GloVe
+```bash
+# تحميل من Stanford NLP
+wget http://nlp.stanford.edu/data/glove.6B.zip
+unzip glove.6B.zip
+```
+
+الأحجام المتاحة:
+- `glove.6B.50d.txt` (50 dimensions)
+- `glove.6B.100d.txt` (100 dimensions)
+- `glove.6B.200d.txt` (200 dimensions)
+- `glove.6B.300d.txt` (300 dimensions)
+
+### 2. استخدام GloVe في الكود
+```python
+from rnn_lstm_captioning import CaptioningRNN
+
+model = CaptioningRNN(
+    word_to_idx=word_to_idx,
+    wordvec_dim=300,  # يجب أن يطابق حجم GloVe
+    hidden_dim=512,
+    cell_type='lstm',
+    glove_path='glove.6B.300d.txt',
+    freeze_embeddings=False  # True لتجميد الـ embeddings
+)
+```
+
+### 3. مثال كامل
+راجع ملف `glove_usage_example.py` لمثال تفصيلي.
+
+**فوائد GloVe:**
+- تحسين الأداء على الكلمات النادرة
+- تقليل وقت التدريب
+- embeddings مدربة على corpus ضخم
+
 ## 🏗️ هيكل المشروع
 
 ```

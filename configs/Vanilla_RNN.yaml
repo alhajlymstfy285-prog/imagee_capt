@@ -1,21 +1,51 @@
-# Vanilla RNN Configuration
+# Vanilla RNN Model Configuration
 
 model:
-  cell_type: "rnn"
-  wordvec_dim: 384        # قلل من 512
-  hidden_dim: 768         # قلل من 1024
-  image_encoder_pretrained: true
-  dropout: 0.6            # زود dropout (من 0.5)
+  cell_type: rnn
+  wordvec_dim: 300
+  hidden_dim: 256
+  input_dim: 512
+  
+# GloVe Embeddings (optional)
+embeddings:
+  use_glove: true
+  glove_path: "glove.6B.300d.txt"
+  freeze: false
 
+# Training parameters
 training:
-  num_epochs: 10
-  batch_size: 24          # زود شوية (من 16)
-  learning_rate: 0.0003
-  weight_decay: 0.001     # زود regularization (من 0.0005)
-  lr_decay: 0.98
-  early_stopping_patience: 10  # قلل الصبر (من 15)
-  gradient_clip: 1.0
+  num_epochs: 5
+  batch_size: 128
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  
+# Data
+data:
+  max_caption_length: 16
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
 
-output:
-  results_dir: "results/Vanilla_RNN"
-  save_model: true
+# Regularization
+regularization:
+  dropout: 0.3
+  label_smoothing: 0.1
+
+# Optimization
+optimizer:
+  type: adam
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# Scheduler
+scheduler:
+  type: step
+  step_size: 10
+  gamma: 0.5
+
+# Checkpointing
+checkpoint:
+  save_every: 5
+  save_best: true
+  metric: val_loss
