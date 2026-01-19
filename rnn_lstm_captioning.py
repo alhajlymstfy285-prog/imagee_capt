@@ -619,7 +619,68 @@ class CaptioningRNN(nn.Module):
         # would both be A.mean(dim=(2, 3)).
         #######################################################################
         # Replace "pass" statement with your code
-        pass
+        
+        # Extract image features
+        features = self.image_encoder(images)  # (N, C, H, W)
+        
+        if self.cell_type in ['rnn', 'lstm']:
+            # Pool features and project to initial hidden state
+            features_pooled = features.mean(dim=[2, 3])  # (N, C)
+            h = self.feature_projection(features_pooled)  # (N, H)
+            
+            # For LSTM, also initialize cell state
+            if self.cell_type == 'lstm':
+                c = torch.zeros_like(h)
+            
+            # Start with <START> token
+            current_word = torch.full((N,), self._start, dtype=torch.long, device=images.device)
+            
+            for t in range(max_length):
+                # (1) Embed current word
+                word_embed = self.word_embedd(current_word)  # (N, W)
+                
+                # (2) RNN step
+                if self.cell_type == 'rnn':
+                    h = self.rnn.step_forward(word_embed, h)
+                elif self.cell_type == 'lstm':
+                    h, c = self.rnn.step_forward(word_embed, h, c)
+                
+                # (3) Get scores for all words
+                scores = self.output_projection(h)  # (N, V)
+                
+                # (4) Select word with highest score
+                current_word = scores.argmax(dim=1)  # (N,)
+                captions[:, t] = current_word
+        
+        elif self.cell_type == 'attn':
+            # For attention LSTM
+            # Project features to A of shape (N, H, 4, 4)
+            N, C, H_feat, W_feat = features.shape
+            A = self.feature_projection(features.permute(0, 2, 3, 1))  # (N, H, W, H_dim)
+            A = A.permute(0, 3, 1, 2)  # (N, H_dim, H, W)
+            
+            # Initial hidden and cell state
+            h = A.mean(dim=(2, 3))  # (N, H)
+            c = torch.zeros_like(h)
+            
+            # Start with <START> token
+            current_word = torch.full((N,), self._start, dtype=torch.long, device=images.device)
+            
+            for t in range(max_length):
+                # Embed current word
+                word_embed = self.word_embedd(current_word)  # (N, W)
+                
+                # Attention LSTM step
+                h, c, attn_weights = self.rnn.step_forward(word_embed, h, c, A)
+                attn_weights_all[:, t] = attn_weights
+                
+                # Get scores
+                scores = self.output_projection(h)
+                
+                # Select word
+                current_word = scores.argmax(dim=1)
+                captions[:, t] = current_word
+        
         ######################################################################
         #                           END OF YOUR CODE                         #
         ######################################################################
