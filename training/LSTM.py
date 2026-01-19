@@ -3,10 +3,15 @@ Training script for LSTM model
 part of ablation study comparing LSTM and Vanilla RNN and lstm with attention and Transformers
 """
 import os
+import sys
 from time import time
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
+
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from models.LSTM import LSTMCaptioner
 from a5_helper import decode_captions
 from metrics import evaluate_captions
@@ -162,12 +167,29 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     """Train using DataLoader (memory efficient)."""
     word_to_idx = vocab["token_to_idx"]
     
+    # Get GloVe settings
+    glove_path = None
+    freeze_embeddings = False
+    if config.get("embeddings", {}).get("use_glove", False):
+        glove_path = config["embeddings"].get("glove_path")
+        freeze_embeddings = config["embeddings"].get("freeze", False)
+        
+        if glove_path and os.path.exists(glove_path):
+            print(f"Using GloVe embeddings from: {glove_path}")
+            print(f"Embeddings frozen: {freeze_embeddings}")
+        else:
+            print(f"Warning: GloVe file not found, using random initialization")
+            glove_path = None
+    
     model = LSTMCaptioner(
         word_to_idx=word_to_idx,
         wordvec_dim=config["model"]["wordvec_dim"],
         hidden_dim=config["model"]["hidden_dim"],
         image_encoder_pretrained=config["model"].get("image_encoder_pretrained", True),
         ignore_index=word_to_idx.get("<NULL>"),
+        backbone=config["model"].get("backbone", "resnet50"),
+        glove_path=glove_path,
+        freeze_embeddings=freeze_embeddings,
     ).to(device)
     
     print(f"Model parameters: {model.count_parameters():,}")
@@ -191,7 +213,7 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     best_metrics = None
     
     for epoch in range(config["training"]["num_epochs"]):
-        start = time.time()
+        start = time()
         
         # Train
         model.train()
@@ -224,7 +246,7 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         
         val_loss /= len(val_loader)
         
-        epoch_time = time.time() - start
+        epoch_time = time() - start
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["epoch_times"].append(epoch_time)
@@ -247,7 +269,7 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
               f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
         
         if patience_counter >= patience:
-            print(f"\n Early stopping at epoch {epoch+1}")
+            print(f"\n⚠️  Early stopping at epoch {epoch+1}")
             print(f"Best Val Loss: {best_val_loss:.4f}")
             model.load_state_dict(best_model_state)
             break

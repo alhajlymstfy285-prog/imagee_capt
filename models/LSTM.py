@@ -15,9 +15,12 @@ class LSTMCaptioner(nn.Module):
             self,
             word_to_idx: dict,
             wordvec_dim: int = 128,
-            hidden_dim:int =128,
+            hidden_dim: int = 128,
             image_encoder_pretrained: bool = True,
             ignore_index: int = None,
+            backbone: str = 'resnet50',
+            glove_path: str = None,
+            freeze_embeddings: bool = False,
     ):
         super().__init__()
         self.model = CaptioningRNN(
@@ -27,6 +30,9 @@ class LSTMCaptioner(nn.Module):
             cell_type="lstm",
             image_encoder_pretrained=image_encoder_pretrained,
             ignore_index=ignore_index,
+            backbone=backbone,
+            glove_path=glove_path,
+            freeze_embeddings=freeze_embeddings,
         )
     
     def forward(self, images: torch.Tensor, captions: torch.Tensor) -> torch.Tensor:
