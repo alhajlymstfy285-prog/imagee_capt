@@ -92,6 +92,74 @@ def evaluate(model, images, captions, batch_size, device):
     return total_loss / max(num_batches, 1)
 
 
+def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samples=200):
+    """
+    Evaluate using BLEU, METEOR, CIDEr metrics from DataLoader.
+    
+    Args:
+        model: trained model
+        val_loader: validation DataLoader
+        idx_to_word: vocabulary mapping
+        device: cuda or cpu
+        num_samples: number of samples to evaluate
+    
+    Returns:
+        Dictionary with metrics
+    """
+    model.eval()
+    
+    references = []
+    hypotheses = []
+    
+    samples_collected = 0
+    
+    with torch.no_grad():
+        for batch_images, batch_captions in val_loader:
+            if samples_collected >= num_samples:
+                break
+            
+            batch_images = batch_images.to(device)
+            
+            # Generate captions
+            generated = model.sample(batch_images, max_length=20)
+            
+            # Decode each sample in batch
+            for i in range(len(batch_images)):
+                if samples_collected >= num_samples:
+                    break
+                
+                gt_caption = batch_captions[i]
+                gen_caption = generated[i]
+                
+                # Decode
+                def decode_caption(caption_tensor, vocab):
+                    """Decode caption tensor to text"""
+                    words = []
+                    for token_id in caption_tensor:
+                        if isinstance(token_id, torch.Tensor):
+                            token_id = token_id.item()
+                        
+                        if token_id in vocab:
+                            word = vocab[token_id]
+                            if word not in ['<NULL>', '<START>', '<END>']:
+                                words.append(word)
+                            if word == '<END>':
+                                break
+                    return ' '.join(words)
+                
+                gt_text = decode_caption(gt_caption, idx_to_word)
+                gen_text = decode_caption(gen_caption, idx_to_word)
+                
+                references.append([gt_text])
+                hypotheses.append(gen_text)
+                samples_collected += 1
+    
+    # Compute metrics
+    metrics = evaluate_captions(references, hypotheses)
+    
+    return metrics
+
+
 def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=100):
     """
     Evaluate using BLEU, METEOR, CIDEr metrics.
@@ -247,7 +315,14 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
             model.load_state_dict(best_model_state)
             break
     
-    history["metrics"] = {}  # Skip metrics for now to save time
+    # Compute final metrics
+    print("\nComputing final metrics...")
+    idx_to_word = vocab["idx_to_token"]
+    best_metrics = evaluate_metrics_dataloader(
+        model, val_loader, idx_to_word, device, num_samples=200
+    )
+    
+    history["metrics"] = best_metrics
     
     return model, history
 
