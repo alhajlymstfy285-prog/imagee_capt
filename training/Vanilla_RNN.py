@@ -17,6 +17,20 @@ from a5_helper import load_coco_captions, decode_captions
 from models.Vanilla_RNN import VanillaRNNCaptioner
 
 
+def load_dataset(dataset_path="./datasets/coco.pt"):
+    """Load dataset (COCO or Flickr)."""
+    if os.path.exists(dataset_path):
+        print(f"Loading dataset from {dataset_path}")
+        return load_coco_captions(dataset_path)
+    elif os.path.exists("./datasets/flickr.pt"):
+        print("Loading Flickr dataset...")
+        return load_coco_captions("./datasets/flickr.pt")
+    else:
+        raise FileNotFoundError(
+            "No dataset found! Run kaggle_setup.py first to prepare Flickr data."
+        )
+
+
 def load_config(config_path: str = "configs/Vanilla_RNN.yaml") -> dict:
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
@@ -164,8 +178,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     
-    print("\nLoading COCO dataset...")
-    data = load_coco_captions()
+    print("\nLoading dataset...")
+    data = load_dataset()
     
     print("\nTraining...")
     model, history = train(config, data, device)

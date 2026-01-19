@@ -1,4 +1,32 @@
+# IDE
 .vscode/
 .kiro/
+.idea/
+
+# Python
 *.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Datasets (too large for GitHub)
 *.pt
+datasets/
+*.h5
+*.hdf5
+
+# Results and checkpoints
+results/
+*.pth
+*.ckpt
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
