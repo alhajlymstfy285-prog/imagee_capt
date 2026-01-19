@@ -5,7 +5,8 @@ model:
   wordvec_dim: 300
   hidden_dim: 512
   input_dim: 512
-  attn_dim: 1280  # CNN output channels
+  attn_dim: 2048  # ResNet50 layer4 output channels
+  backbone: resnet50  # Options: resnet50, resnet101, regnet_x_400mf
   
 # GloVe Embeddings (optional)
 embeddings:

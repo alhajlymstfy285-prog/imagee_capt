@@ -5,6 +5,7 @@ model:
   wordvec_dim: 300  # Use 300 for GloVe compatibility
   hidden_dim: 512
   input_dim: 512
+  backbone: resnet50  # Options: resnet50, resnet101, regnet_x_400mf
   
 # GloVe Embeddings (optional)
 embeddings:

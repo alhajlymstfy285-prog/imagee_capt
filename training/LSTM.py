@@ -70,7 +70,8 @@ def main():
         image_encoder_pretrained=True,
         ignore_index=word_to_idx['<NULL>'],
         glove_path=glove_path,
-        freeze_embeddings=freeze_embeddings
+        freeze_embeddings=freeze_embeddings,
+        backbone=config['model'].get('backbone', 'resnet50')
     )
     
     model = model.to(device)

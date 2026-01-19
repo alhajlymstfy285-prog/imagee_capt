@@ -103,6 +103,43 @@ model = CaptioningRNN(
 - تقليل وقت التدريب
 - embeddings مدربة على corpus ضخم
 
+## 🖼️ اختيار CNN Backbone
+
+يدعم المشروع backbones مختلفة لاستخراج features:
+
+### الخيارات المتاحة
+- **ResNet50** (الافتراضي) - أداء ممتاز ومتوازن
+- **ResNet101** - أداء أفضل لكن أبطأ
+- **RegNet-X 400MF** - خفيف وسريع
+
+### الاستخدام
+```python
+model = CaptioningRNN(
+    word_to_idx=word_to_idx,
+    wordvec_dim=300,
+    hidden_dim=512,
+    cell_type='lstm',
+    backbone='resnet50'  # أو 'resnet101' أو 'regnet_x_400mf'
+)
+```
+
+أو في config file:
+```yaml
+model:
+  backbone: resnet50
+  hidden_dim: 512
+  attn_dim: 2048  # ResNet50 output channels
+```
+
+**المقارنة:**
+| Backbone | Parameters | Speed | Performance | Memory |
+|----------|-----------|-------|-------------|--------|
+| ResNet50 | 25.6M | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | متوسط |
+| ResNet101 | 44.5M | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | عالي |
+| RegNet | 5.2M | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | قليل |
+
+راجع `BACKBONE_GUIDE.md` للتفاصيل الكاملة.
+
 ## 🏗️ هيكل المشروع
 
 ```

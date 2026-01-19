@@ -14,71 +14,69 @@ def hello_rnn_lstm_captioning():
 
 class ImageEncoder(nn.Module):
     """
-    Convolutional network that accepts images as input and outputs their spatial
-    grid features. This module servesx as the image encoder in image captioning
-    model. We will use a tiny RegNet-X 400MF model that is initialized with
-    ImageNet-pretrained weights from Torchvision library.
-
-    NOTE: We could use any convolutional network architecture, but we opt for a
-    tiny RegNet model so it can train decently with a single K80 Colab GPU.
+    CNN encoder using ResNet50 for extracting image features.
+    Outputs spatial grid features for attention-based models.
     """
 
-    def __init__(self, pretrained: bool = True, verbose: bool = True):
+    def __init__(self, pretrained: bool = True, verbose: bool = True, backbone: str = 'resnet50'):
         """
         Args:
-            pretrained: Whether to initialize this model with pretrained weights
-                from Torchvision library.
-            verbose: Whether to log expected output shapes during instantiation.
+            pretrained: Whether to use ImageNet pretrained weights
+            verbose: Whether to print output shapes
+            backbone: CNN architecture ('resnet50', 'resnet101', 'regnet_x_400mf')
         """
         super().__init__()
-        self.cnn = torchvision.models.regnet_x_400mf(pretrained=pretrained)
-
-        # Torchvision models return global average pooled features by default.
-        # Our attention-based models may require spatial grid features. So we
-        # wrap the ConvNet with torchvision's feature extractor. We will get
-        # the spatial features right before the final classification layer.
+        
+        # Select backbone architecture
+        if backbone == 'resnet50':
+            self.cnn = torchvision.models.resnet50(pretrained=pretrained)
+            feature_node = 'layer4'
+        elif backbone == 'resnet101':
+            self.cnn = torchvision.models.resnet101(pretrained=pretrained)
+            feature_node = 'layer4'
+        elif backbone == 'regnet_x_400mf':
+            self.cnn = torchvision.models.regnet_x_400mf(pretrained=pretrained)
+            feature_node = 'trunk_output.block4'
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+        
+        self.backbone_name = backbone
+        
+        # Extract spatial features before global pooling
         self.backbone = feature_extraction.create_feature_extractor(
-            self.cnn, return_nodes={"trunk_output.block4": "c5"}
+            self.cnn, return_nodes={feature_node: "c5"}
         )
-        # We call these features "c5", a name that may sound familiar from the
-        # object detection assignment. :-)
 
-        # Pass a dummy batch of input images to infer output shape.
+        # Infer output channels
         dummy_out = self.backbone(torch.randn(2, 3, 224, 224))["c5"]
         self._out_channels = dummy_out.shape[1]
 
         if verbose:
-            print("For input images in NCHW format, shape (2, 3, 224, 224)")
-            print(f"Shape of output c5 features: {dummy_out.shape}")
+            print(f"Using {backbone} backbone")
+            print(f"Input shape: (2, 3, 224, 224)")
+            print(f"Output c5 features shape: {dummy_out.shape}")
+            print(f"Output channels: {self._out_channels}")
 
-        # Input image batches are expected to be float tensors in range [0, 1].
-        # However, the backbone here expects these tensors to be normalized by
-        # ImageNet color mean/std (as it was trained that way).
-        # We define a function to transform the input images before extraction:
+        # ImageNet normalization
         self.normalize = torchvision.transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
 
     @property
     def out_channels(self):
-        """
-        Number of output channels in extracted image features. You may access
-        this value freely to define more modules to go with this encoder.
-        """
+        """Number of output channels in extracted features."""
         return self._out_channels
 
     def forward(self, images: torch.Tensor):
-        # Input images may be uint8 tensors in [0-255], change them to float
-        # tensors in [0-1]. Get float type from backbone (could be float32/64).
+        # Convert uint8 to float if needed
         if images.dtype == torch.uint8:
-            images = images.to(dtype=self.cnn.stem[0].weight.dtype)
+            images = images.to(dtype=torch.float32)
             images /= 255.0
 
-        # Normalize images by ImageNet color mean/std.
+        # Normalize with ImageNet stats
         images = self.normalize(images)
 
-        # Extract c5 features from encoder (backbone) and return.
-        # shape: (B, out_channels, H / 32, W / 32)
+        # Extract features
         features = self.backbone(images)["c5"]
         return features
 
@@ -264,6 +262,7 @@ class CaptioningRNN(nn.Module):
         ignore_index: Optional[int] = None,
         glove_path: Optional[str] = None,
         freeze_embeddings: bool = False,
+        backbone: str = 'resnet50',
     ):
         super().__init__()
         if cell_type not in {"rnn", "lstm", "attn"}:
@@ -280,7 +279,10 @@ class CaptioningRNN(nn.Module):
         self._end = word_to_idx.get("<END>", None)
         self.ignore_index = ignore_index
 
-        self.image_encoder = ImageEncoder(pretrained=image_encoder_pretrained)
+        self.image_encoder = ImageEncoder(
+            pretrained=image_encoder_pretrained,
+            backbone=backbone
+        )
         
         # Load GloVe embeddings if path provided
         pretrained_embeddings = None
