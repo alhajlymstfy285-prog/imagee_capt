@@ -26,7 +26,8 @@ class FlickrDataset(Dataset):
         split='train',
         train_ratio=0.8,
         max_samples=None,
-        augment=True
+        augment=True,
+        use_all_captions=True
     ):
         """
         Args:
@@ -47,6 +48,7 @@ class FlickrDataset(Dataset):
         self.max_samples = max_samples
         self.split = split
         self.augment = augment and (split == 'train')  # Only augment training data
+        self.use_all_captions = use_all_captions
         
         # Default transform (without augmentation)
         if transform is None:
@@ -58,14 +60,12 @@ class FlickrDataset(Dataset):
                     transforms.RandomHorizontalFlip(p=0.5),
                     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
                     transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 ])
             else:
                 # Validation: no augmentation
                 self.transform = transforms.Compose([
                     transforms.Resize((224, 224)),
                     transforms.ToTensor(),
-                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                 ])
         else:
             self.transform = transform
@@ -88,40 +88,51 @@ class FlickrDataset(Dataset):
             img_col = df.columns[0]
             cap_col = df.columns[2] if len(df.columns) > 2 else df.columns[1]
         
-        # Get unique images with their first caption
-        self.data = []
-        for img_name in df[img_col].unique():
-            img_path = os.path.join(images_path, img_name)
-            
-            # Check if image exists
-            if not os.path.exists(img_path):
-                # Try alternative path
-                img_path = os.path.join(images_path, "flickr30k_images", img_name)
-                if not os.path.exists(img_path):
-                    continue
-            
-            # Get first caption
-            caption = df[df[img_col] == img_name][cap_col].iloc[0]
-            caption = str(caption).strip()
-            
-            if not caption or caption == 'nan':
-                continue
-            
-            # Tokenize
-            tokens = caption.lower().replace('.', '').replace(',', '').split()
-            
-            # Skip very short or long captions
-            if len(tokens) < 3 or len(tokens) > 30:
-                continue
-            
-            self.data.append((img_path, tokens))
-        
-        # Train/val split
-        split_idx = int(train_ratio * len(self.data))
+        # Prepare image list for split
+        image_names = df[img_col].unique().tolist()
+        split_idx = int(train_ratio * len(image_names))
         if split == 'train':
-            self.data = self.data[:split_idx]
+            split_images = set(image_names[:split_idx])
         else:
-            self.data = self.data[split_idx:]
+            split_images = set(image_names[split_idx:])
+
+        # Build data list and references map
+        self.data = []
+        self.references = {}
+        
+        if self.use_all_captions:
+            rows = df[df[img_col].isin(split_images)]
+            for _, row in rows.iterrows():
+                img_name = row[img_col]
+                caption = str(row[cap_col]).strip()
+                if not caption or caption == 'nan':
+                    continue
+                tokens = caption.lower().replace('.', '').replace(',', '').split()
+                if len(tokens) < 3 or len(tokens) > 30:
+                    continue
+                img_path = os.path.join(images_path, img_name)
+                if not os.path.exists(img_path):
+                    img_path = os.path.join(images_path, "flickr30k_images", img_name)
+                    if not os.path.exists(img_path):
+                        continue
+                self.data.append((img_path, tokens, img_name))
+                self.references.setdefault(img_name, []).append(' '.join(tokens))
+        else:
+            for img_name in split_images:
+                img_path = os.path.join(images_path, img_name)
+                if not os.path.exists(img_path):
+                    img_path = os.path.join(images_path, "flickr30k_images", img_name)
+                    if not os.path.exists(img_path):
+                        continue
+                caption = df[df[img_col] == img_name][cap_col].iloc[0]
+                caption = str(caption).strip()
+                if not caption or caption == 'nan':
+                    continue
+                tokens = caption.lower().replace('.', '').replace(',', '').split()
+                if len(tokens) < 3 or len(tokens) > 30:
+                    continue
+                self.data.append((img_path, tokens, img_name))
+                self.references.setdefault(img_name, []).append(' '.join(tokens))
         
         print(f"{split.capitalize()} dataset: {len(self.data)} samples")
     
@@ -134,7 +145,7 @@ class FlickrDataset(Dataset):
             image: Tensor of shape (3, 224, 224)
             caption: Tensor of shape (max_length,) with token indices
         """
-        img_path, tokens = self.data[idx]
+        img_path, tokens, img_name = self.data[idx]
         
         # Load and transform image
         try:
@@ -156,7 +167,7 @@ class FlickrDataset(Dataset):
         caption = torch.zeros(self.max_length, dtype=torch.long)
         caption[:len(caption_indices)] = torch.tensor(caption_indices[:self.max_length])
         
-        return img, caption
+        return img, caption, img_name
 
 
 def create_flickr_dataloaders(
@@ -166,7 +177,9 @@ def create_flickr_dataloaders(
     num_workers=2,
     train_ratio=0.8,
     max_samples=None,
-    augmentation=True
+    augmentation=True,
+    max_caption_length=32,
+    use_all_captions=True
 ):
     """
     Create train and val dataloaders for Flickr30k.
@@ -228,14 +241,18 @@ def create_flickr_dataloaders(
         images_path, captions_file, vocab_dict,
         split='train', train_ratio=train_ratio,
         max_samples=max_samples,
-        augment=augmentation  # Use augmentation parameter
+        augment=augmentation,  # Use augmentation parameter
+        max_length=max_caption_length,
+        use_all_captions=use_all_captions
     )
     
     val_dataset = FlickrDataset(
         images_path, captions_file, vocab_dict,
         split='val', train_ratio=train_ratio,
         max_samples=max_samples,
-        augment=False  # No augmentation for validation
+        augment=False,  # No augmentation for validation
+        max_length=max_caption_length,
+        use_all_captions=use_all_captions
     )
     
     print(f"Train samples: {len(train_dataset)}")
@@ -274,7 +291,7 @@ if __name__ == "__main__":
     print(f"Val batches: {len(val_loader)}")
     
     # Test one batch
-    images, captions = next(iter(train_loader))
+    images, captions, _ = next(iter(train_loader))
     print(f"\nBatch shapes:")
     print(f"  Images: {images.shape}")
     print(f"  Captions: {captions.shape}")

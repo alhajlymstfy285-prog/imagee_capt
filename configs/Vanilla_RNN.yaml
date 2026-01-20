@@ -16,11 +16,12 @@ embeddings:
 
 # Training parameters
 training:
-  num_epochs: 25
+  num_epochs: 1
   batch_size: 128
   learning_rate: 0.0005
   weight_decay: 0.001
   grad_clip: 5.0
+  teacher_forcing_ratio: 0.9
   
 # Data
 data:
@@ -28,9 +29,10 @@ data:
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
-  use_sample: false  # true = استخدام sample صغير للتجربة، false = استخدام كل البيانات
+  use_sample: true  # true = استخدام sample صغير للتجربة، false = استخدام كل البيانات
   sample_size: 1000  # عدد الصور في الـ sample (يُستخدم فقط إذا use_sample = true)
   augmentation: true  # true = استخدام data augmentation للصور أثناء التدريب
+  use_all_captions: true  # استخدام كل التعليقات لكل صورة
 
 # Regularization
 regularization:
@@ -54,6 +56,10 @@ output:
   results_dir: "results/Vanilla_RNN"
   save_model: true
   save_plots: true
+
+# Evaluation
+evaluation:
+  beam_size: 3
 
 # Checkpointing
 checkpoint:

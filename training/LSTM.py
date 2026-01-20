@@ -47,13 +47,24 @@ def load_dataset_efficient(config=None):
         print("Data augmentation: DISABLED")
     
     print("Creating DataLoaders (memory efficient)...")
+    batch_size = 32
+    max_caption_length = 16
+    use_all_captions = True
+    if config and "training" in config:
+        batch_size = config["training"].get("batch_size", batch_size)
+    if config and "data" in config:
+        max_caption_length = config["data"].get("max_caption_length", max_caption_length)
+        use_all_captions = config["data"].get("use_all_captions", True)
+
     train_loader, val_loader, vocab = create_flickr_dataloaders(
         images_path,
         captions_file,
-        batch_size=32,
+        batch_size=batch_size,
         num_workers=2,
         max_samples=sample_size if use_sample else None,
-        augmentation=augmentation
+        augmentation=augmentation,
+        max_caption_length=max_caption_length,
+        use_all_captions=use_all_captions
     )
     
     return train_loader, val_loader, vocab
@@ -198,6 +209,8 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         backbone=config["model"].get("backbone", "resnet50"),
         glove_path=glove_path,
         freeze_embeddings=freeze_embeddings,
+        dropout=config.get("regularization", {}).get("dropout", 0.3),
+        label_smoothing=config.get("regularization", {}).get("label_smoothing", 0.0),
     ).to(device)
     
     print(f"Model parameters: {model.count_parameters():,}")
@@ -217,21 +230,26 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     best_val_loss = float('inf')
     patience_counter = 0
     patience = config["training"].get("early_stopping_patience", 10)
-    gradient_clip = config["training"].get("gradient_clip", None)
+    gradient_clip = config["training"].get("gradient_clip", config["training"].get("grad_clip", None))
     best_metrics = None
     
+    teacher_forcing_ratio = config["training"].get("teacher_forcing_ratio", 1.0)
     for epoch in range(config["training"]["num_epochs"]):
         start = time()
         
         # Train
         model.train()
         train_loss = 0.0
-        for batch_images, batch_captions in train_loader:
+        for batch in train_loader:
+            if len(batch) == 3:
+                batch_images, batch_captions, _ = batch
+            else:
+                batch_images, batch_captions = batch
             batch_images = batch_images.to(device)
             batch_captions = batch_captions.to(device)
             
             optimizer.zero_grad()
-            loss = model(batch_images, batch_captions)
+            loss = model(batch_images, batch_captions, teacher_forcing_ratio=teacher_forcing_ratio)
             loss.backward()
             
             if gradient_clip:
@@ -246,10 +264,14 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch_images, batch_captions in val_loader:
+            for batch in val_loader:
+                if len(batch) == 3:
+                    batch_images, batch_captions, _ = batch
+                else:
+                    batch_images, batch_captions = batch
                 batch_images = batch_images.to(device)
                 batch_captions = batch_captions.to(device)
-                loss = model(batch_images, batch_captions)
+                loss = model(batch_images, batch_captions, teacher_forcing_ratio=1.0)
                 val_loss += loss.item()
         
         val_loss /= len(val_loader)
@@ -285,8 +307,9 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     # Compute final metrics
     print("\nComputing final metrics...")
     idx_to_word = vocab["idx_to_token"]
+    beam_size = config.get("evaluation", {}).get("beam_size", 1)
     best_metrics = evaluate_metrics_dataloader(
-        model, val_loader, idx_to_word, device, num_samples=200
+        model, val_loader, idx_to_word, device, num_samples=200, beam_size=beam_size
     )
     
     history["metrics"] = best_metrics

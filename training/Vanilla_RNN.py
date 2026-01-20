@@ -48,13 +48,24 @@ def load_dataset_efficient(config=None):
         print("Data augmentation: DISABLED")
     
     print("Creating DataLoaders (memory efficient)...")
+    batch_size = 32
+    max_caption_length = 16
+    use_all_captions = True
+    if config and "training" in config:
+        batch_size = config["training"].get("batch_size", batch_size)
+    if config and "data" in config:
+        max_caption_length = config["data"].get("max_caption_length", max_caption_length)
+        use_all_captions = config["data"].get("use_all_captions", True)
+
     train_loader, val_loader, vocab = create_flickr_dataloaders(
         images_path,
         captions_file,
-        batch_size=32,
+        batch_size=batch_size,
         num_workers=2,
         max_samples=sample_size if use_sample else None,
-        augmentation=augmentation
+        augmentation=augmentation,
+        max_caption_length=max_caption_length,
+        use_all_captions=use_all_captions
     )
     
     return train_loader, val_loader, vocab
@@ -113,7 +124,7 @@ def evaluate(model, images, captions, batch_size, device):
     return total_loss / max(num_batches, 1)
 
 
-def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samples=200):
+def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samples=200, beam_size: int = 1):
     """
     Evaluate using BLEU, METEOR, CIDEr metrics from DataLoader.
     
@@ -135,14 +146,20 @@ def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samp
     samples_collected = 0
     
     with torch.no_grad():
-        for batch_images, batch_captions in val_loader:
+        for batch in val_loader:
             if samples_collected >= num_samples:
                 break
+            
+            if len(batch) == 3:
+                batch_images, batch_captions, batch_names = batch
+            else:
+                batch_images, batch_captions = batch
+                batch_names = None
             
             batch_images = batch_images.to(device)
             
             # Generate captions
-            generated = model.sample(batch_images, max_length=20)
+            generated = model.sample(batch_images, max_length=20, beam_size=beam_size)
             
             # Decode each sample in batch
             for i in range(len(batch_images)):
@@ -171,7 +188,13 @@ def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samp
                 gt_text = decode_caption(gt_caption, idx_to_word)
                 gen_text = decode_caption(gen_caption, idx_to_word)
                 
-                references.append([gt_text])
+                if batch_names is not None:
+                    image_name = batch_names[i]
+                    dataset_refs = getattr(val_loader.dataset, "references", {})
+                    refs = dataset_refs.get(image_name, [gt_text])
+                    references.append(refs)
+                else:
+                    references.append([gt_text])
                 hypotheses.append(gen_text)
                 samples_collected += 1
     
@@ -246,12 +269,29 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     """Train using DataLoader (memory efficient)."""
     word_to_idx = vocab["token_to_idx"]
     
+    glove_path = None
+    freeze_embeddings = False
+    if config.get("embeddings", {}).get("use_glove", False):
+        glove_path = config["embeddings"].get("glove_path")
+        freeze_embeddings = config["embeddings"].get("freeze", False)
+        if glove_path and os.path.exists(glove_path):
+            print(f"Using GloVe embeddings from: {glove_path}")
+            print(f"Embeddings frozen: {freeze_embeddings}")
+        else:
+            print("Warning: GloVe file not found, using random initialization")
+            glove_path = None
+
     model = VanillaRNNCaptioner(
         word_to_idx=word_to_idx,
         wordvec_dim=config["model"]["wordvec_dim"],
         hidden_dim=config["model"]["hidden_dim"],
         image_encoder_pretrained=config["model"].get("image_encoder_pretrained", True),
         ignore_index=word_to_idx.get("<NULL>"),
+        backbone=config["model"].get("backbone", "resnet50"),
+        glove_path=glove_path,
+        freeze_embeddings=freeze_embeddings,
+        dropout=config.get("regularization", {}).get("dropout", 0.3),
+        label_smoothing=config.get("regularization", {}).get("label_smoothing", 0.0),
     ).to(device)
     
     print(f"Model parameters: {model.count_parameters():,}")
@@ -271,21 +311,26 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     best_val_loss = float('inf')
     patience_counter = 0
     patience = config["training"].get("early_stopping_patience", 25)
-    gradient_clip = config["training"].get("gradient_clip", None)
+    gradient_clip = config["training"].get("gradient_clip", config["training"].get("grad_clip", None))
     best_metrics = None
     
+    teacher_forcing_ratio = config["training"].get("teacher_forcing_ratio", 1.0)
     for epoch in range(config["training"]["num_epochs"]):
         start = time.time()
         
         # Train
         model.train()
         train_loss = 0.0
-        for batch_images, batch_captions in train_loader:
+        for batch in train_loader:
+            if len(batch) == 3:
+                batch_images, batch_captions, _ = batch
+            else:
+                batch_images, batch_captions = batch
             batch_images = batch_images.to(device)
             batch_captions = batch_captions.to(device)
             
             optimizer.zero_grad()
-            loss = model(batch_images, batch_captions)
+            loss = model(batch_images, batch_captions, teacher_forcing_ratio=teacher_forcing_ratio)
             loss.backward()
             
             if gradient_clip:
@@ -300,10 +345,14 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch_images, batch_captions in val_loader:
+            for batch in val_loader:
+                if len(batch) == 3:
+                    batch_images, batch_captions, _ = batch
+                else:
+                    batch_images, batch_captions = batch
                 batch_images = batch_images.to(device)
                 batch_captions = batch_captions.to(device)
-                loss = model(batch_images, batch_captions)
+                loss = model(batch_images, batch_captions, teacher_forcing_ratio=1.0)
                 val_loss += loss.item()
         
         val_loss /= len(val_loader)
@@ -339,8 +388,9 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     # Compute final metrics
     print("\nComputing final metrics...")
     idx_to_word = vocab["idx_to_token"]
+    beam_size = config.get("evaluation", {}).get("beam_size", 1)
     best_metrics = evaluate_metrics_dataloader(
-        model, val_loader, idx_to_word, device, num_samples=200
+        model, val_loader, idx_to_word, device, num_samples=200, beam_size=beam_size
     )
     
     history["metrics"] = best_metrics

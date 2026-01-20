@@ -231,7 +231,7 @@ class WordEmbedding(nn.Module):
         return self.W_embed[x]
 
 
-def temporal_softmax_loss(x, y, ignore_index=None):
+def temporal_softmax_loss(x, y, ignore_index=None, label_smoothing: float = 0.0):
     """
     Temporal softmax loss for sequence models.
     """
@@ -241,7 +241,7 @@ def temporal_softmax_loss(x, y, ignore_index=None):
         y.reshape(N * T), 
         ignore_index=ignore_index, 
         reduction='sum',
-        label_smoothing=0.1
+        label_smoothing=label_smoothing
     ) / N
     return loss
 
@@ -263,6 +263,8 @@ class CaptioningRNN(nn.Module):
         glove_path: Optional[str] = None,
         freeze_embeddings: bool = False,
         backbone: str = 'resnet50',
+        dropout: float = 0.3,
+        label_smoothing: float = 0.0,
     ):
         super().__init__()
         if cell_type not in {"rnn", "lstm", "attn"}:
@@ -278,6 +280,7 @@ class CaptioningRNN(nn.Module):
         self._start = word_to_idx.get("<START>", None)
         self._end = word_to_idx.get("<END>", None)
         self.ignore_index = ignore_index
+        self.label_smoothing = label_smoothing
 
         self.image_encoder = ImageEncoder(
             pretrained=image_encoder_pretrained,
@@ -300,9 +303,9 @@ class CaptioningRNN(nn.Module):
             self.rnn = AttentionLSTM(wordvec_dim, hidden_dim, self.image_encoder.out_channels)
 
         self.output_projection = nn.Linear(hidden_dim, vocab_size)
-        self.dropout = nn.Dropout(0.3)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, images, captions):
+    def forward(self, images, captions, teacher_forcing_ratio: float = 1.0):
         """
         Compute training loss for the captioning model.
         """
@@ -314,20 +317,52 @@ class CaptioningRNN(nn.Module):
         if self.cell_type in ['lstm', 'rnn']:
             features_pooled = features.mean(dim=[2, 3])
             h0 = self.feature_projection(features_pooled)
-            word_embedd = self.dropout(self.word_embedd(captions_in))
-            h = self.rnn(word_embedd, h0)
-            h = self.dropout(h)
-            h = torch.nn.functional.layer_norm(h, h.shape[1:])
+            
+            if teacher_forcing_ratio >= 1.0:
+                word_embedd = self.dropout(self.word_embedd(captions_in))
+                h = self.rnn(word_embedd, h0)
+                h = self.dropout(h)
+                h = torch.nn.functional.layer_norm(h, h.shape[1:])
+                scores = self.output_projection(h)
+            else:
+                N, T = captions_in.shape
+                scores_list = []
+                prev_h = h0
+                if self.cell_type == 'lstm':
+                    prev_c = torch.zeros_like(prev_h)
+                
+                current_word = captions_in[:, 0]
+                for t in range(T):
+                    word_embed = self.word_embedd(current_word)
+                    if self.cell_type == 'rnn':
+                        next_h = self.rnn.step_forward(word_embed, prev_h)
+                    else:
+                        next_h, prev_c = self.rnn.step_forward(word_embed, prev_h, prev_c)
+                    next_h = self.dropout(next_h)
+                    score_t = self.output_projection(next_h)
+                    scores_list.append(score_t)
+                    
+                    use_teacher = torch.rand(N, device=images.device) < teacher_forcing_ratio
+                    teacher_word = captions_in[:, t]
+                    predicted_word = score_t.argmax(dim=1)
+                    current_word = torch.where(use_teacher, teacher_word, predicted_word)
+                    prev_h = next_h
+                
+                scores = torch.stack(scores_list, dim=1)
         elif self.cell_type == 'attn':
             word_embedd = self.dropout(self.word_embedd(captions_in))
             h = self.rnn(word_embedd, features)
             h = self.dropout(h)
-
-        scores = self.output_projection(h)
-        loss = temporal_softmax_loss(scores, captions_out, ignore_index=self._null)
+            scores = self.output_projection(h)
+        loss = temporal_softmax_loss(
+            scores,
+            captions_out,
+            ignore_index=self._null,
+            label_smoothing=self.label_smoothing
+        )
         return loss
 
-    def sample(self, images, max_length=15):
+    def sample(self, images, max_length=15, beam_size: int = 1, length_penalty: float = 0.7):
         """
         Generate captions for input images using greedy sampling.
         """
@@ -341,24 +376,74 @@ class CaptioningRNN(nn.Module):
         
         if self.cell_type in ['rnn', 'lstm']:
             features_pooled = features.mean(dim=[2, 3])
-            h = self.feature_projection(features_pooled)
             
-            if self.cell_type == 'lstm':
-                c = torch.zeros_like(h)
-            
-            current_word = torch.full((N,), self._start, dtype=torch.long, device=images.device)
-            
-            for t in range(max_length):
-                word_embed = self.word_embedd(current_word)
+            if beam_size <= 1:
+                h = self.feature_projection(features_pooled)
                 
-                if self.cell_type == 'rnn':
-                    h = self.rnn.step_forward(word_embed, h)
-                elif self.cell_type == 'lstm':
-                    h, c = self.rnn.step_forward(word_embed, h, c)
+                if self.cell_type == 'lstm':
+                    c = torch.zeros_like(h)
                 
-                scores = self.output_projection(h)
-                current_word = scores.argmax(dim=1)
-                captions[:, t] = current_word
+                current_word = torch.full((N,), self._start, dtype=torch.long, device=images.device)
+                
+                for t in range(max_length):
+                    word_embed = self.word_embedd(current_word)
+                    
+                    if self.cell_type == 'rnn':
+                        h = self.rnn.step_forward(word_embed, h)
+                    elif self.cell_type == 'lstm':
+                        h, c = self.rnn.step_forward(word_embed, h, c)
+                    
+                    scores = self.output_projection(h)
+                    current_word = scores.argmax(dim=1)
+                    captions[:, t] = current_word
+            else:
+                captions = captions.clone()
+                for i in range(N):
+                    h = self.feature_projection(features_pooled[i:i+1])
+                    if self.cell_type == 'lstm':
+                        c = torch.zeros_like(h)
+                    
+                    beams = [([self._start], 0.0, h, c if self.cell_type == 'lstm' else None)]
+                    completed = []
+                    
+                    for _ in range(max_length):
+                        new_beams = []
+                        for seq, score, h_t, c_t in beams:
+                            prev_word = torch.tensor([seq[-1]], device=images.device)
+                            word_embed = self.word_embedd(prev_word)
+                            if self.cell_type == 'rnn':
+                                next_h = self.rnn.step_forward(word_embed, h_t)
+                                next_c = None
+                            else:
+                                next_h, next_c = self.rnn.step_forward(word_embed, h_t, c_t)
+                            
+                            logits = self.output_projection(next_h)
+                            log_probs = torch.log_softmax(logits, dim=1).squeeze(0)
+                            topk_probs, topk_ids = torch.topk(log_probs, beam_size)
+                            
+                            for prob, idx in zip(topk_probs.tolist(), topk_ids.tolist()):
+                                new_seq = seq + [idx]
+                                new_score = score + prob
+                                new_beams.append((new_seq, new_score, next_h, next_c))
+                        
+                        new_beams.sort(key=lambda x: x[1], reverse=True)
+                        beams = []
+                        for seq, score, h_t, c_t in new_beams[:beam_size]:
+                            if seq[-1] == self._end:
+                                completed.append((seq, score))
+                            else:
+                                beams.append((seq, score, h_t, c_t))
+                        if len(beams) == 0:
+                            break
+                    
+                    if completed:
+                        completed.sort(key=lambda x: x[1] / (len(x[0]) ** length_penalty), reverse=True)
+                        best_seq = completed[0][0][1:]
+                    else:
+                        best_seq = beams[0][0][1:]
+                    
+                    for t in range(min(max_length, len(best_seq))):
+                        captions[i, t] = best_seq[t]
         
         elif self.cell_type == 'attn':
             N, C, H_feat, W_feat = features.shape
