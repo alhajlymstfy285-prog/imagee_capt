@@ -57,11 +57,15 @@ def load_dataset_efficient(config=None):
         max_caption_length = config["data"].get("max_caption_length", max_caption_length)
         use_all_captions = config["data"].get("use_all_captions", True)
 
+    num_workers = 2
+    if config and "data" in config:
+        num_workers = config["data"].get("num_workers", num_workers)
+
     train_loader, val_loader, vocab = create_flickr_dataloaders(
         images_path,
         captions_file,
         batch_size=batch_size,
-        num_workers=2,
+        num_workers=num_workers,
         max_samples=sample_size if use_sample else None,
         augmentation=augmentation,
         max_caption_length=max_caption_length,
@@ -204,7 +208,7 @@ def evaluate_metrics_dataloader(model, val_loader, idx_to_word, device, num_samp
     return metrics
 
 
-def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=100):
+def evaluate_metrics(model, images, captions, idx_to_word, device, num_samples=200):
     """
     Evaluate using BLEU, METEOR, CIDEr metrics.
     
@@ -314,14 +318,38 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     gradient_clip = config["training"].get("gradient_clip", config["training"].get("grad_clip", None))
     best_metrics = None
     
+    results_dir = config.get("output", {}).get("results_dir", "results/Vanilla_RNN")
+    os.makedirs(results_dir, exist_ok=True)
+    checkpoint_cfg = config.get("checkpoint", {})
+    save_every = checkpoint_cfg.get("save_every", 5)
+    save_best = checkpoint_cfg.get("save_best", True)
+    resume_path = checkpoint_cfg.get("resume_from", None)
+    
+    start_epoch = 0
+    if resume_path and os.path.exists(resume_path):
+        print(f"Resuming from checkpoint: {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+        scheduler.load_state_dict(checkpoint["scheduler_state"])
+        history = checkpoint.get("history", history)
+        best_val_loss = checkpoint.get("best_val_loss", best_val_loss)
+        start_epoch = checkpoint.get("epoch", 0) + 1
+        patience_counter = checkpoint.get("patience_counter", 0)
+    
     teacher_forcing_ratio = config["training"].get("teacher_forcing_ratio", 1.0)
-    for epoch in range(config["training"]["num_epochs"]):
+    tf_schedule = config["training"].get("teacher_forcing_schedule", None)
+    grad_accum_steps = max(1, int(config["training"].get("grad_accum_steps", 1)))
+    use_amp = bool(config["training"].get("use_amp", True))
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    for epoch in range(start_epoch, config["training"]["num_epochs"]):
         start = time.time()
         
         # Train
         model.train()
         train_loss = 0.0
-        for batch in train_loader:
+        optimizer.zero_grad()
+        for step, batch in enumerate(train_loader, start=1):
             if len(batch) == 3:
                 batch_images, batch_captions, _ = batch
             else:
@@ -329,15 +357,26 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
             batch_images = batch_images.to(device)
             batch_captions = batch_captions.to(device)
             
-            optimizer.zero_grad()
-            loss = model(batch_images, batch_captions, teacher_forcing_ratio=teacher_forcing_ratio)
-            loss.backward()
+            if tf_schedule:
+                start_ratio = float(tf_schedule.get("start", teacher_forcing_ratio))
+                end_ratio = float(tf_schedule.get("end", teacher_forcing_ratio))
+                total_epochs = max(1, config["training"]["num_epochs"] - 1)
+                progress = min(1.0, epoch / total_epochs)
+                teacher_forcing_ratio = start_ratio + (end_ratio - start_ratio) * progress
+
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                loss = model(batch_images, batch_captions, teacher_forcing_ratio=teacher_forcing_ratio)
+                loss = loss / grad_accum_steps
+            scaler.scale(loss).backward()
             
-            if gradient_clip:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
-            
-            optimizer.step()
-            train_loss += loss.item()
+            if step % grad_accum_steps == 0:
+                if gradient_clip:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+            train_loss += loss.item() * grad_accum_steps
         
         train_loss /= len(train_loader)
         
@@ -352,7 +391,8 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
                     batch_images, batch_captions = batch
                 batch_images = batch_images.to(device)
                 batch_captions = batch_captions.to(device)
-                loss = model(batch_images, batch_captions, teacher_forcing_ratio=1.0)
+                with torch.cuda.amp.autocast(enabled=use_amp):
+                    loss = model(batch_images, batch_captions, teacher_forcing_ratio=1.0)
                 val_loss += loss.item()
         
         val_loss /= len(val_loader)
@@ -370,6 +410,17 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
             patience_counter = 0
             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             status = "✓ Best"
+            if save_best:
+                best_path = os.path.join(results_dir, "checkpoint_best.pt")
+                torch.save({
+                    "epoch": epoch,
+                    "model_state": model.state_dict(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "scheduler_state": scheduler.state_dict(),
+                    "history": history,
+                    "best_val_loss": best_val_loss,
+                    "patience_counter": patience_counter,
+                }, best_path)
         else:
             patience_counter += 1
             status = f"({patience_counter}/{patience})"
@@ -378,6 +429,18 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
         print(f"Epoch {epoch+1}/{config['training']['num_epochs']} - "
               f"Train: {train_loss:.4f}, Val: {val_loss:.4f}, "
               f"LR: {current_lr:.6f}, Time: {epoch_time:.1f}s {status}")
+        
+        if save_every and (epoch + 1) % save_every == 0:
+            last_path = os.path.join(results_dir, "checkpoint_last.pt")
+            torch.save({
+                "epoch": epoch,
+                "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "scheduler_state": scheduler.state_dict(),
+                "history": history,
+                "best_val_loss": best_val_loss,
+                "patience_counter": patience_counter,
+            }, last_path)
         
         if patience_counter >= patience:
             print(f"\n⚠️ Early stopping at epoch {epoch+1}")
@@ -388,9 +451,11 @@ def train_with_dataloader(config, train_loader, val_loader, vocab, device):
     # Compute final metrics
     print("\nComputing final metrics...")
     idx_to_word = vocab["idx_to_token"]
-    beam_size = config.get("evaluation", {}).get("beam_size", 1)
+    eval_cfg = config.get("evaluation", {})
+    beam_size = eval_cfg.get("beam_size", 1)
+    num_samples = eval_cfg.get("num_samples", 200)
     best_metrics = evaluate_metrics_dataloader(
-        model, val_loader, idx_to_word, device, num_samples=200, beam_size=beam_size
+        model, val_loader, idx_to_word, device, num_samples=num_samples, beam_size=beam_size
     )
     
     history["metrics"] = best_metrics
@@ -570,6 +635,7 @@ def main():
     
     config = load_config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.backends.cudnn.benchmark = True
     print(f"Device: {device}")
     
     print("\nLoading dataset (memory efficient)...")
